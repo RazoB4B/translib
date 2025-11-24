@@ -1,0 +1,9 @@
+pyproject.toml
+translib/funanddis.py
+translib.egg-info/PKG-INFO
+translib.egg-info/SOURCES.txt
+translib.egg-info/dependency_links.txt
+translib.egg-info/top_level.txt
+translib/eigmods/__init__.py
+translib/eigmods/manualclustering.py
+translib/optics/__init__.py
