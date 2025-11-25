@@ -1,2 +1,23 @@
+# Byte-compiled
 *.pyc
 __pycache__/
+
+# Virtual environments
+venv/
+env/
+.MyEnv/
+
+# Build artifacts
+build/
+dist/
+*.egg-info/
+
+# Jupyter notebooks
+.ipynb_checkpoints/
+
+# IDEs
+.vscode/
+.idea/
+
+# Logs
+*.log
