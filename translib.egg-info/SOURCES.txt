@@ -1,5 +1,9 @@
 pyproject.toml
-translib/funanddis.py
+setup.cfg
+translib/__init__.py
+translib/distributions.py
+translib/functions.py
+translib/plotOpts.py
 translib.egg-info/PKG-INFO
 translib.egg-info/SOURCES.txt
 translib.egg-info/dependency_links.txt
@@ -7,3 +11,6 @@ translib.egg-info/top_level.txt
 translib/eigmods/__init__.py
 translib/eigmods/manualclustering.py
 translib/optics/__init__.py
+translib/optics/maskOpts.py
+translib/transport/__init__.py
+translib/transport/waveguide.py
