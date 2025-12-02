@@ -73,3 +73,21 @@ def LogTrans1DDisord(_lnG, _s):
     _p = _G*Trans1DDisord(_G, _s)
     _p = _p/np.trapz(_p, _lnG)
     return _p
+
+
+def Inten1DDisordNeupane(_s, _N=101, _etaL=1e1, _x=None):
+    '''
+    Evaluates intensity as function of the position inside a 1D disordered system
+    See Eq. 7 of PRB 92, 014207 (2015)
+    
+    s: The adimensional length
+    N: Number of points in the domain
+    etaL: Limits of the integral (Originally from -infinity to infinity)
+    x: Domain to evaluate
+    '''
+    if _x == None:
+        _x = np.linspace(0, 1, _N)
+    _eta = np.linspace(-_etaL, _etaL, 10001)
+    X, Eta = np.meshgrid(_x, _eta, indexing="ij")
+    _fun = np.exp(-(Eta-(X-0.5)*_s)**2/_s)*(np.tanh(Eta) + Eta/np.cosh(Eta)**2)
+    return 1-np.sqrt(1/(_s*np.pi))*np.trapezoid(_fun, _eta)

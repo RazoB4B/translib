@@ -194,7 +194,7 @@ def SectionMask(size, nfigs, angle, deph=0, clock=True, Max=None, Min=None):
         dtheta = np.pi*angle/360
     if deph > 2*np.pi: # Considers that if the dephase angle is larger than 2pi then it was given if degrees  
         deph = np.pi*deph/180
-    cthetas = np.linspace(0, 2*np.pi, nfigs) + deph
+    cthetas = np.linspace(-np.pi, np.pi, nfigs) + deph
 
     if clock:
         c = 1
@@ -206,14 +206,14 @@ def SectionMask(size, nfigs, angle, deph=0, clock=True, Max=None, Min=None):
         mask = np.zeros([size, size], dtype='complex')
         mask[r<=Max] = 1
         mask[r<=Min] = 0
-        for j in range(-3,4):
-            mask[np.abs(theta-c*ctheta+2*j*np.pi)<=dtheta] = 0
+        _indx, _indy = np.where((np.abs(theta-c*ctheta-2*np.pi)<=dtheta) | 
+                                (np.abs(theta-c*ctheta+2*np.pi)<=dtheta) | 
+                                (np.abs(theta-c*ctheta)<=dtheta))
+        
+        mask[_indx, _indy] = 0
 
         Masks.append(mask.astype(complex))
-    if nfigs == 1:
-        return Masks[0]
-    else:
-        return Masks
+    return Masks
 
 
 def GetExperimentDMD(Diffuser, angle, nfigs, deph=0, NPad=10, WinSize=1, clock=True, Max=None, Min=None):
