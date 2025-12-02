@@ -75,7 +75,7 @@ def LogTrans1DDisord(_lnG, _s):
     return _p
 
 
-def Inten1DDisordNeupane(_s, _N=101, _etaL=1e1, _x=None):
+def Inten1DDisord(_s, _N=101, _etaL=1e1, _x=None):
     '''
     Evaluates intensity as function of the position inside a 1D disordered system
     See Eq. 7 of PRB 92, 014207 (2015)
