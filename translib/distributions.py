@@ -74,6 +74,8 @@ def LogTrans1DDisord(_lnG, _s):
     _p = _p/np.trapz(_p, _lnG)
     return _p
 
+#File modified for testing
+
 
 def Inten1DDisordNeupane(_s, _N=101, _etaL=1e1, _x=None):
     '''
