@@ -56,7 +56,7 @@ def Trans1DDisord(_G, _s):
     '''
     _p = np.sqrt(np.arccosh(1/np.sqrt(_G)))*np.exp(-(1/_s)*(np.arccosh(1/np.sqrt(_G))**2))
     _p = _p/(np.sqrt(_G**3)*((1-_G)**(0.25)))
-    _p = _p/np.trapz(_p, _G)
+    _p = _p/np.trapezoid(_p, _G)
     return _p
 
 
@@ -75,7 +75,7 @@ def LogTrans1DDisord(_lnG, _s):
     return _p
 
 
-def Inten1DDisord(_s, _N=101, _etaL=1e1, _x=None):
+def Inten1DDisordNeupane(_s, _N=101, _etaL=1e1, _x=None):
     '''
     Evaluates intensity as function of the position inside a 1D disordered system
     See Eq. 7 of PRB 92, 014207 (2015)
