@@ -191,8 +191,8 @@ def SectionMask(size, nfigs, angle, deph=0, clock=True, Max=None, Min=None):
     theta = np.arctan2(axY, axX)
 
     if angle > 2*np.pi: # Considers that if the apperture angle is larger than 2pi then it was given if degrees
-        dtheta = np.pi*angle/360
-    if deph > 2*np.pi: # Considers that if the dephase angle is larger than 2pi then it was given if degrees  
+        dtheta = np.pi*angle/180
+    if np.abs(deph) > 2*np.pi: # Considers that if the dephase angle is larger than 2pi then it was given if degrees  
         deph = np.pi*deph/180
     cthetas = np.linspace(-np.pi, np.pi, nfigs) + deph
 
@@ -206,9 +206,9 @@ def SectionMask(size, nfigs, angle, deph=0, clock=True, Max=None, Min=None):
         mask = np.zeros([size, size], dtype='complex')
         mask[r<=Max] = 1
         mask[r<=Min] = 0
-        _indx, _indy = np.where((np.abs(theta-c*ctheta-2*np.pi)<=dtheta) | 
-                                (np.abs(theta-c*ctheta+2*np.pi)<=dtheta) | 
-                                (np.abs(theta-c*ctheta)<=dtheta))
+        _indx, _indy = np.where((np.abs(theta-c*ctheta-2*np.pi)<=dtheta/2) | 
+                                (np.abs(theta-c*ctheta+2*np.pi)<=dtheta/2) | 
+                                (np.abs(theta-c*ctheta)<=dtheta/2))
         
         mask[_indx, _indy] = 0
 
