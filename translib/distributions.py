@@ -54,9 +54,10 @@ def Trans1DDisord(_G, _s):
     G: The transmission domain
     s: The adimensional length
     '''
+    _G, _s = np.meshgrid(_G, _s, indexing="ij")
     _p = np.sqrt(np.arccosh(1/np.sqrt(_G)))*np.exp(-(1/_s)*(np.arccosh(1/np.sqrt(_G))**2))
     _p = _p/(np.sqrt(_G**3)*((1-_G)**(0.25)))
-    _p = _p/np.trapezoid(_p, _G)
+    _p = _p/np.trapezoid(_p, _G, axis=0)
     return _p
 
 
@@ -70,26 +71,49 @@ def LogTrans1DDisord(_lnG, _s):
     s: The adimensional length
     '''
     _G = np.exp(_lnG)
-    _p = _G*Trans1DDisord(_G, _s)
-    _p = _p/np.trapz(_p, _lnG)
+    _p = _G*Trans1DDisord(_G, _s)[:,0]
+    _p = _p/np.trapezoid(_p, _lnG)
     return _p
 
-#File modified for testing
 
-
-def Inten1DDisordNeupane(_s, _N=101, _etaL=1e1, _x=None):
+def Inten1DDisordNeupane(_x, _s, _etaL=1e1):
     '''
     Evaluates intensity as function of the position inside a 1D disordered system
     See Eq. 7 of PRB 92, 014207 (2015)
     
+    x: The spatial domain
     s: The adimensional length
-    N: Number of points in the domain
     etaL: Limits of the integral (Originally from -infinity to infinity)
-    x: Domain to evaluate
     '''
-    if _x == None:
-        _x = np.linspace(0, 1, _N)
     _eta = np.linspace(-_etaL, _etaL, 10001)
     X, Eta = np.meshgrid(_x, _eta, indexing="ij")
     _fun = np.exp(-(Eta-(X-0.5)*_s)**2/_s)*(np.tanh(Eta) + Eta/np.cosh(Eta)**2)
     return 1-np.sqrt(1/(_s*np.pi))*np.trapezoid(_fun, _eta)
+
+def Inten1DDisordMello(_x, _s, _NG=1001):
+    '''
+    Evaluates intensity as function of the position inside a 1D disordered system
+    See Eq. (11a) of Physica E 82, 261-265 (2016)
+    
+    x: The spatial domain
+    s: The adimensional length
+    etaL: Limits of the integral (Originally from -infinity to infinity)
+    '''
+    s1 = _s*_x
+    s2 = _s*(1-_x)
+
+    G = np.linspace(0, 1, _NG+2)
+    G = G[1:-1]
+
+    T1, T2 = np.meshgrid(G, G, indexing="ij")
+    Dis = T1*(2-T2)/(T1+T2-T1*T2)
+    Dis = np.dstack([Dis]*len(_x))
+    
+    P1 = Trans1DDisord(G, s1)
+    P2 = Trans1DDisord(G, s2)
+    P1 = np.dstack([P1]*len(G))
+    P2 = np.dstack([P2]*len(G))
+
+    P1 = np.transpose(P1, (0, 2, 1))
+    P2 = np.transpose(P2, (2, 0, 1))
+    return np.trapezoid(np.trapezoid(P1*P2*Dis, G, axis=0), G, axis=0)
