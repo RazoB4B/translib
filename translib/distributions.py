@@ -90,6 +90,7 @@ def Inten1DDisordNeupane(_x, _s, _etaL=1e1):
     _fun = np.exp(-(Eta-(X-0.5)*_s)**2/_s)*(np.tanh(Eta) + Eta/np.cosh(Eta)**2)
     return 1-np.sqrt(1/(_s*np.pi))*np.trapezoid(_fun, _eta)
 
+
 def Inten1DDisordMello(_x, _s, _NG=1001):
     '''
     Evaluates intensity as function of the position inside a 1D disordered system

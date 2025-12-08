@@ -6,6 +6,7 @@ Created on Tue Nov  4 18:20:48 2025
 @author: alberto-razo
 """
 
+import torch
 import numpy as np
 from scipy.signal import argrelmax
 
@@ -122,3 +123,13 @@ def L2_Norm(x, y):
     y: the array 2
     """
     return np.sqrt(np.mean(np.abs(x - y)**2))
+
+
+def L2_Norm_Torch(x, y):
+    """
+    Computes the norm in 2D between two different tensors
+    
+    x: the array 1
+    y: the array 2
+    """
+    return torch.sqrt(torch.mean(torch.abs(x - y)**2))
