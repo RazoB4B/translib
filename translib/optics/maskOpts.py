@@ -60,7 +60,7 @@ def Harmonics(_Imgs, _Nharms=4, _Npad=1, _Sym=True, _axis=0, _Nper=1):
     if _Nper != 1:
         _Imgs = np.array_split(_Imgs, _Nper, axis=_axis)[0]
         
-    _img = _Imgs[1:]
+    _img = _Imgs
     for i in range(_Npad-1):
         _Imgs = np.append(_Imgs, _img, axis=_axis)
     del _img
