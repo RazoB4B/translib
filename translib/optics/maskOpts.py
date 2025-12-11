@@ -66,10 +66,6 @@ def Harmonics(_Imgs, _Nharms=4, _Npad=1, _Sym=True, _axis=0, _Nper=1):
     del _img
     
     _Ntot = len(_Imgs)
-    if np.mod(_Ntot,2) == 0:
-        _Imgs = np.append(_Imgs, _Imgs[0], axis=_axis)
-        _Ntot = len(_Imgs)
-
     _harms = np.fft.fftshift(np.fft.fft(_Imgs, axis=_axis), axes=_axis)
     
     _frqs = np.linspace(0, _Npad, _Ntot)
