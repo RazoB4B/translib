@@ -50,15 +50,21 @@ def Harmonics(_Imgs, _Nharms=4, _Npad=1, _Sym=True, _axis=0, _Nper=1):
     Takes the array of figures modulated in time and perform the Fourier tranforms
     to find the harmonics
 
-    Imgs: Array of data with time dependence
+    Imgs: Array of data with time dependence (Odd number)
     Nharm: Number of Harmonics that will be extracted from the data
     Npad: Number of periods after padding
     Sym: if True extract the harmonics [-n, n]
     axis: axis of 'Imgs' that represents the time dependence 
     Nper: The number of time cycles in the original signal
     """
+    if np.mod(len(_Imgs), 2) == 0:
+        print('Number of images is even, please try with an odd number')
+    
     if _Nper != 1:
         _Imgs = np.array_split(_Imgs, _Nper, axis=_axis)[0]
+        
+    if np.mod(_Npad, 2) == 0:
+        _Npad += 1
         
     _img = _Imgs
     for i in range(_Npad-1):
@@ -74,7 +80,7 @@ def Harmonics(_Imgs, _Nharms=4, _Npad=1, _Sym=True, _axis=0, _Nper=1):
 
     _inds = []
     for i in range(-_Nharms, _Nharms+1):
-        _inds = np.append(_inds, np.where(i==_frqs))
+        _inds = np.append(_inds, np.where(np.abs(i-_frqs)<1e-6))
 
     _inds = _inds.astype(int)
     _harms = np.take(_harms, _inds, axis=_axis)
