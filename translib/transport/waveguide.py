@@ -43,7 +43,7 @@ def RecWaveVector(ws, index=1, m=0, a=1, n=0, b=1, wnorm=True):
     return np.sqrt(ks**2 - mprop**2 - nprop**2 + 0j)
     
 
-def TransMatOneSlabTE(ws, la, lb, tha, m=0, a=1, n=0, b=1, fromA=True, wnorm=True, epsa=None, epsb=None, mua=None, mub=None):
+def TransMatOneSlabTE2(ws, la, lb, tha, m=0, a=1, n=0, b=1, fromA=True, wnorm=True, epsa=None, epsb=None, mua=None, mub=None):
     """
     Computed the transfer matrices in the TE polarization corresponding to a dielectric material 
     contained in another dielectric following the Fresnel and Maxwell equations. If the system is
@@ -201,7 +201,7 @@ def TransMatOneSlabTM(ws, la, lb, tha, m=0, a=1, n=0, b=1, fromA=True, wnorm=Tru
     return TMs
 
 
-def TransMatOneSlabTE2(ws, la, lb, tha, m=0, a=1, n=0, b=1, wnorm=True, epsa=None, epsb=None, mua=None, mub=None):
+def TransMatOneSlabTE(ws, la, lb, tha, m=0, a=1, n=0, b=1, RetA=True, wnorm=True, epsa=None, epsb=None, mua=None, mub=None):
     if epsa == None:
         epsa = 1
     if epsb == None:
@@ -245,12 +245,10 @@ def TransMatOneSlabTE2(ws, la, lb, tha, m=0, a=1, n=0, b=1, wnorm=True, epsa=Non
     Mbs[:,0,0] = np.exp(1j*kbs*lb)
     Mbs[:,1,1] = np.exp(-1j*kbs*lb)
 
-    if fromA:
-        TMs = np.matmul(Mabs, Mas)
-        TMs = np.matmul(Mbs, TMs)
-    else:
-        TMs = Mbs
-    TMs = np.matmul(Mbas, TMs)
+    TMs = np.matmul(Mabs, Mas)
+    TMs = np.matmul(Mbs, TMs)
+    if RetA:
+        TMs = np.matmul(Mbas, TMs)
 
     return TMs
 
