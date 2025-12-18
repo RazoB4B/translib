@@ -313,6 +313,22 @@ def GetFarField(array, Npad=5, WinSize=5, conj=False):
     return CropCenter(array, int(n*WinSize), conj)
 
 
+def GetFarField2(array, Npad=5, WinSize=5, dep1=0, dep2=0, conj=False):
+    """
+    Computes the far field propagation of a given array
+
+    array: the array
+    Npad: the size of the padded figure used to compute the Fourier transform
+    WinSize: the size of the final figure
+    conj: if True shifts by one the pixel the final image
+    """
+    n = len(array)
+    pad = (Npad-1)*n//2
+    array = np.pad(array, pad, mode='constant')
+    array = np.fft.fftshift(np.fft.fft2(np.fft.ifftshift(array)))
+    return CropOutCenter(array, int(n*WinSize), dep1, dep2, conj)
+
+
 def GetFarField_Torch(array, Npad=5, WinSize=5, conj=False):
     """
     Computes the far field propagation of a given tensor
@@ -345,6 +361,24 @@ def CropCenter(array, crop, conj=False):
     x, y = array.shape
     startx = x//2-(crop//2)
     starty = y//2-(crop//2)
+    if conj and np.mod(x,2)==0 and (x-crop)>1 and (y-crop)>1:
+        array = array[startx+1:startx+crop+1, starty+1:starty+crop+1]
+    else:
+        array = array[startx:startx+crop, starty:starty+crop]
+    return array
+
+
+def CropOutCenter(array, crop, dep1, dep2, conj=False):
+    """
+    Crops the central section of a given array
+
+    array: the array
+    crop: number of pixels size we will extract
+    conj: if True shifts by one the pixel the final image
+    """
+    x, y = array.shape
+    startx = x//2-(crop//2) + dep1
+    starty = y//2-(crop//2) + dep2
     if conj and np.mod(x,2)==0 and (x-crop)>1 and (y-crop)>1:
         array = array[startx+1:startx+crop+1, starty+1:starty+crop+1]
     else:
