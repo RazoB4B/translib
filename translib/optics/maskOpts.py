@@ -456,6 +456,17 @@ def GetNumModes(_IntensArray):
 
 
 class EarlyStopping:
+    """
+    Early stopping function for the torch optimizer
+
+    Initialization: EarlyS = EarlyStopping(Patience=100, Mindelta=0)
+    Usage: EarlyS(Error)
+
+    Patience: Number of steps after the code stops
+    Mindelta: Minimum value of decreasing of the error to consider the optimizer
+              is not improving
+    Error: Error to minimice by the optimizer
+    """
     def __init__(self, Patience=500, Mindelta=0):
         self.Patience = Patience
         self.Mindelta = Mindelta
@@ -471,137 +482,6 @@ class EarlyStopping:
             self.Counter += 1
             if self.Counter >= self.Patience:
                 self.should_stop = True
-
-
-def FindDiffuser(Input, LR_init=1, NPad=10, theta=180, TryR=False, InitDiff=None, RMax=None, DiffSize=None, MaxSteps=None):
-    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    print(f'Running on {device}')
-
-    EarlyS = EarlyStopping(Patience=100, Mindelta=0)
-
-    # Recieving and computing numpy arrays
-    alpha = theta*2*np.pi/360
-    Nangle = (2*np.pi)/(alpha)
-    c = np.abs(np.sinc(1/Nangle))/(Nangle-1)
-
-    a02 = Input[0]
-    S0 = Input[1]
-    S1 = Input[2]
-
-    if DiffSize is None:
-        DiffSize = a02.shape[0]
-
-    VMasks = VortexMask(DiffSize, 1, Max=RMax)
-
-    #Loading to torch
-    a02_target = torch.from_numpy(a02).to(torch.complex64).to(device)
-    S0_target = torch.from_numpy(S0).to(torch.complex64).to(device)
-    S1_target = torch.from_numpy(S1).to(torch.complex64).to(device)
-
-    a02_target = a02_target/torch.mean(torch.abs(a02_target))
-    S0_target = S0_target/torch.mean(torch.abs(S0_target))
-    S1_target = S1_target/torch.mean(torch.abs(S1_target))
-
-    V0 = torch.from_numpy(VMasks[1]).to(torch.complex64).to(device)
-    Vp1 = torch.from_numpy(VMasks[2]).to(torch.complex64).to(device)
-    Vm1 = torch.from_numpy(VMasks[0]).to(torch.complex64).to(device)
-
-    if InitDiff is None:
-        param_diff = 2*np.pi*(torch.rand(DiffSize, DiffSize, requires_grad=True) - 0.5)
-        param_diff = param_diff.clone().detach().requires_grad_(True)
-        optimizer = torch.optim.Adam([param_diff], lr=LR_init)
-    else:
-        param_diff = torch.from_numpy(InitDiff).clone().detach().to(torch.float32).to(device).requires_grad_(True)
-        optimizer = torch.optim.Adam([param_diff], lr=LR_init)
-
-    if MaxSteps is None:
-        MaxSteps = int(1e5)
-
-    # Optimization
-    TotLoss = np.zeros([MaxSteps])
-    ElapTime = np.zeros([MaxSteps])
-
-    timei = time.time()
-    for _step in tqdm(range(MaxSteps)):
-        optimizer.zero_grad()
-
-        diff = torch.exp(1j*param_diff)
-
-        pred_a0 = GetFarField_Torch(diff*V0, NPad, a02.shape[0]/DiffSize)
-        pred_ap1 = GetFarField_Torch(diff*Vp1, NPad, a02.shape[0]/DiffSize)
-        pred_am1 = GetFarField_Torch(diff*Vm1, NPad, a02.shape[0]/DiffSize)
-
-        pred_a0 = pred_a0/torch.mean(torch.abs(pred_a0))
-        pred_ap1 = pred_ap1/torch.mean(torch.abs(pred_ap1))
-        pred_am1 = pred_am1/torch.mean(torch.abs(pred_am1))
-
-        S0_pred = torch.abs(pred_a0)**2 + torch.abs(c*pred_am1)**2 + torch.abs(c*pred_ap1)**2
-        S1_pred = pred_a0*pred_am1.conj() + pred_ap1*pred_a0.conj()
-
-        a02_pred = torch.abs(pred_a0)**2/torch.mean(torch.abs(pred_a0)**2)
-        S0_pred = S0_pred/torch.mean(torch.abs(S0_pred))
-        S1_pred = S1_pred/torch.mean(torch.abs(S1_pred))
-
-        loss_a0 = fun.L2_Norm_Torch(a02_pred, a02_target)
-        loss_S0 = fun.L2_Norm_Torch(S0_pred, S0_target)
-        loss_S1 = fun.L2_Norm_Torch(S1_pred, S1_target)
-
-        loss_total = loss_a0 + loss_S0 + loss_S1
-
-        loss_total.backward()
-        optimizer.step()
-
-        TotLoss[_step] = loss_total.item()
-        ElapTime[_step] = time.time() - timei
-
-        EarlyS(loss_total.item())
-        if TryR and (EarlyS.should_stop and loss_total.item()>3e-1):
-            print('Restarting', loss_total.item())
-            with torch.no_grad():
-                param_diff = 2*np.pi*(torch.rand(DiffSize, DiffSize) - 0.5)
-            param_diff = param_diff.clone().detach().requires_grad_(True)
-            optimizer = torch.optim.Adam([param_diff], lr=LR_init)
-            EarlyS = EarlyStopping(Patience=100, Mindelta=0)
-        if EarlyS.should_stop:
-            print('Found', loss_total.item())
-            TotLoss = TotLoss[:_step+1]
-            ElapTime = ElapTime[:_step+1]
-            break
-
-    Diff = param_diff.detach().numpy()
-    return Diff, TotLoss, ElapTime
-
-
-def FindBigDiffuser(Input, Div=2, LR_init=1, NPad=10, theta=180, RMax=None, DiffSize=None, MaxSteps=None):
-    a02= Input[0]
-    S0 = Input[1]
-    S1 = Input[2]
-
-    if DiffSize is None:
-        DiffSize = a02.shape[0]
-
-    for i in np.flip(range(Div+1)):
-        _a02 = CropCenter(a02, DiffSize//(2**i))
-        _S0 = CropCenter(S0, DiffSize//(2**i))
-        _S1 = CropCenter(S1, DiffSize//(2**i))
-
-        if i == Div:
-            Diff, _TotLoss, _ElapTime = FindDiffuser([_a02, _S0, _S1], LR_init, NPad, theta, True, RMax=RMax, DiffSize=DiffSize//(2**Div), MaxSteps=MaxSteps)
-        else:
-            Diff, _TotLoss, _ElapTime = FindDiffuser([_a02, _S0, _S1], LR_init/2, NPad, theta, False, InitDiff=Diff, RMax=RMax, MaxSteps=MaxSteps)
-
-        if i != 0:
-            Diff = np.repeat(np.repeat(Diff, 2, axis=0), 2, axis=1)
-
-        try:
-            TotLoss = np.append(TotLoss, _TotLoss)
-            ElapTime = np.append(ElapTime, _ElapTime+ElapTime[-1])
-        except:
-            TotLoss = _TotLoss
-            ElapTime = _ElapTime
-
-    Diff = np.exp(1j*Diff)
-    return Diff, TotLoss, ElapTime
 
 
 def FindDiffusera0(Input, deph=0, LR_init=1, NPad=10, TryR=False, InitDiff=None, RMax=None, DiffSize=None, MaxSteps=None, MaxLoss=None):
@@ -757,105 +637,3 @@ def FindBigDiffusera0(Input, deph=0, Div=2, LR_init=1, NPad=10, RMax=None, DiffS
 
     Diff = np.exp(1j*Diff)
     return Diff, TotLoss, ElapTime, EnergyLoss
-
-
-class BinarizeSTE(torch.autograd.Function):
-    @staticmethod
-    def forward(ctx, x):
-        # Hard threshold: 0 or 1
-        return (x > 0).float()
-
-    @staticmethod
-    def backward(ctx, grad_output):
-        # Straight-through estimator: pass gradients as if identity
-        return grad_output
-
-
-def check_grad(name, x):
-    print(f"{name}: requires_grad={x.requires_grad}, grad_fn={x.grad_fn}")
-
-def binarize_ste(x):
-    y = (x > 0.5).float()
-    return x + (y - x).detach()
-
-def FindDiffuserDMD(a0, LR_init=1, NPad=10, TryR=False, InitDiff=None, RMax=None, DiffSize=None, MaxSteps=None):
-    device = "cpu"
-    EarlyS = EarlyStopping(Patience=100, Mindelta=0)
-
-    # Recieving and computing numpy arrays
-    if DiffSize is None:
-        DiffSize = a0.shape[0]
-
-    VMask = VortexMask(DiffSize, 0, Max=RMax)
-
-    #Loading to torch
-    a0_target = torch.from_numpy(a0).to(torch.complex64).to(device)
-    a0_target = a0_target/torch.mean(torch.abs(a0_target))
-
-    V0 = torch.from_numpy(VMask).to(torch.complex64).to(device)
-
-    if InitDiff is None:
-        param_diff = 0.1*torch.rand(DiffSize, DiffSize, requires_grad=True)
-        param_diff = param_diff.clone().detach().requires_grad_(True)
-        optimizer = torch.optim.Adam([param_diff], lr=LR_init)
-    else:
-        param_diff = torch.from_numpy(InitDiff).clone().detach().to(torch.float32).to(device).requires_grad_(True)
-        optimizer = torch.optim.Adam([param_diff], lr=LR_init)
-
-    if MaxSteps is None:
-        MaxSteps = int(1e5)
-
-    # Optimization
-    TotLoss = np.zeros([MaxSteps])
-    ElapTime = np.zeros([MaxSteps])
-    EnergyLoss = np.zeros([MaxSteps])
-
-    timei = time.time()
-    for _step in tqdm(range(MaxSteps)):
-        optimizer.zero_grad()
-
-        prob = torch.sigmoid(param_diff)
-        diff = binarize_ste(prob)
-
-#        check_grad('diff', diff)
-
-        pred_a0 = GetFarField_Torch(diff*V0, NPad, a0.shape[0]/DiffSize)
-        pred_a0 = pred_a0/torch.mean(torch.abs(pred_a0))
-
-        loss_a0 = fun.L2_Norm_Torch(pred_a0, a0_target)
-
-        loss_a0.backward()
-        optimizer.step()
-
-        EnergyMap = torch.abs(torch.fft.fft2(torch.exp(1j*(torch.angle(a0_target) - torch.angle(pred_a0)))))
-
-        TotLoss[_step] = loss_a0.item()
-        ElapTime[_step] = time.time() - timei
-        EnergyLoss[_step] = (torch.max(EnergyMap)/DiffSize**2).item()
-
-#        print("grad norm:", param_diff.grad.norm().item())
-    
- #       print("grad_soft max:", diff.grad)   # <= VERY IMPORTANT
-  #      print("grad_param max:", param_diff.grad.abs().max().item())
-
-        print("param min/max:", param_diff.min().item(), param_diff.max().item())
-        print("diff min/max:", diff.min().item(), diff.max().item())
-
-        EarlyS(loss_a0.item())
-        if TryR and (EarlyS.should_stop and loss_a0.item()>10):
-            print('Restarting', loss_a0.item())
-            with torch.no_grad():
-                param_diff = 2*np.pi*(torch.rand(DiffSize, DiffSize) - 0.5)
-            param_diff = param_diff.clone().detach().requires_grad_(True)
-            optimizer = torch.optim.Adam([param_diff], lr=LR_init)
-            EarlyS = EarlyStopping(Patience=100, Mindelta=0)
-        if EarlyS.should_stop:
-            print('Found', loss_a0.item())
-            TotLoss = TotLoss[:_step+1]
-            ElapTime = ElapTime[:_step+1]
-            EnergyLoss = EnergyLoss[:_step+1]
-            break
-
-    Diff = diff.detach().numpy()
-    return Diff, TotLoss, ElapTime, EnergyLoss
-

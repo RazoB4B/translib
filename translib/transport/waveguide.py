@@ -199,3 +199,58 @@ def TransMatOneSlabTM(ws, la, lb, tha, m=0, a=1, n=0, b=1, fromA=True, wnorm=Tru
     TMs = np.matmul(Mbas, TMs)
 
     return TMs
+
+
+def TransMatOneSlabTE2(ws, la, lb, tha, m=0, a=1, n=0, b=1, wnorm=True, epsa=None, epsb=None, mua=None, mub=None):
+    if epsa == None:
+        epsa = 1
+    if epsb == None:
+        epsb = 2
+    if mua == None:
+        mua = 1
+    if mub == None:
+        mub = 1
+
+    na = np.sqrt(epsa*mua)
+    nb = np.sqrt(epsb*mub)
+
+    if not wnorm:
+        ws = ws/sc.c
+    thb = np.arcsin((na/nb)*np.sin(tha))
+
+    kas = RecWaveVector(ws, na, m, a, n, b) * np.cos(tha)
+    kbs = RecWaveVector(ws, nb, m, a, n, b) * np.cos(thb)
+
+    zab = (mub*kas)/(mua*kbs)
+    zba = 1/zab
+
+    Mas = np.zeros([len(ws),2,2], dtype='complex')
+    Mabs = np.zeros([len(ws),2,2], dtype='complex')
+    Mbs = np.zeros([len(ws),2,2], dtype='complex')
+    Mbas = np.zeros([len(ws),2,2], dtype='complex')
+
+    Mas[:,0,0] = np.exp(1j*kas*la)
+    Mas[:,1,1] = np.exp(-1j*kas*la)
+
+    Mabs[:,0,0] = (1 + zab)*0.5
+    Mabs[:,0,1] = (1 - zab)*0.5
+    Mabs[:,1,0] = Mabs[:,0,1]
+    Mabs[:,1,1] = Mabs[:,0,0]
+
+    Mbas[:,0,0] = (1 + zba)*0.5
+    Mbas[:,0,1] = (1 - zba)*0.5
+    Mbas[:,1,0] = Mbas[:,0,1]
+    Mbas[:,1,1] = Mbas[:,0,0]
+
+    Mbs[:,0,0] = np.exp(1j*kbs*lb)
+    Mbs[:,1,1] = np.exp(-1j*kbs*lb)
+
+    if fromA:
+        TMs = np.matmul(Mabs, Mas)
+        TMs = np.matmul(Mbs, TMs)
+    else:
+        TMs = Mbs
+    TMs = np.matmul(Mbas, TMs)
+
+    return TMs
+
