@@ -518,9 +518,29 @@ class EarlyStopping:
                 self.should_stop = True
 
 
+class IncreasingThreshold:
+
+    def __init__(self, Patience=5, Increase=0.05):
+        self.Patience = Patience
+        self.Increase = Increase
+        self.Counter = 0
+
+    def __call__(self, MaxLoss):
+        self.Counter += 1
+        if self.Counter >= self.Patience:
+            self.Counter = 0
+            print('Increasing maximum loss to', self.Increase + MaxLoss)
+            return self.Increase + MaxLoss
+        else:
+            print(self.Counter)
+            return MaxLoss
+
+
+
 def FindDiffusera0(Input, deph=0, LR_init=1, NPad=10, TryR=False, InitDiff=None, RMax=None, DiffSize=None, MaxSteps=None, MaxLoss=None):
     device = "cpu"
     EarlyS = EarlyStopping(Patience=100, Mindelta=0)
+    Threshold = IncreasingThreshold(Patience=5, Increase=0.05)
 
     # Recieving and computing numpy arrays
     alpha = np.pi
@@ -538,8 +558,6 @@ def FindDiffusera0(Input, deph=0, LR_init=1, NPad=10, TryR=False, InitDiff=None,
 
     if MaxLoss is None:
         MaxLoss = 0.3
-    _MaxLoss = MaxLoss
-    _Counter = 0
 
     VMasks = VortexMask(DiffSize, 1, Max=RMax)
 
@@ -618,6 +636,7 @@ def FindDiffusera0(Input, deph=0, LR_init=1, NPad=10, TryR=False, InitDiff=None,
             param_diff = param_diff.clone().detach().requires_grad_(True)
             optimizer = torch.optim.Adam([param_diff], lr=LR_init)
             EarlyS = EarlyStopping(Patience=100, Mindelta=0)
+            Threshold
             _Counter += 1
             if _Counter>5:
                 _MaxLoss = _MaxLoss+0.05
@@ -676,6 +695,7 @@ def FindBigDiffusera0(Input, deph=0, Div=2, LR_init=1, NPad=10, RMax=None, DiffS
 def FindDiffuser(Input, deph=0, LR_init=1, NPad=10, TryR=False, InitDiff=None, RMax=None, DiffSize=None, MaxSteps=None, MaxLoss=None):
     device = "cpu"
     EarlyS = EarlyStopping(Patience=100, Mindelta=0)
+    Threshold = IncreasingThreshold(Patience=5, Increase=0.05)
 
     # Recieving and computing numpy arrays
     alpha = np.pi
@@ -692,8 +712,6 @@ def FindDiffuser(Input, deph=0, LR_init=1, NPad=10, TryR=False, InitDiff=None, R
 
     if MaxLoss is None:
         MaxLoss = 0.3
-    _MaxLoss = MaxLoss
-    _Counter = 0
 
     VMasks = VortexMask(DiffSize, 1, Max=RMax)
 
@@ -759,18 +777,14 @@ def FindDiffuser(Input, deph=0, LR_init=1, NPad=10, TryR=False, InitDiff=None, R
         ElapTime[_step] = time.time() - timei
 
         EarlyS(loss_total.item())
-        if TryR and (EarlyS.should_stop and loss_total.item()>_MaxLoss):
-            print('Restarting', _Counter+1, loss_total.item())
+        if TryR and (EarlyS.should_stop and loss_total.item()>MaxLoss):
+            EarlyS = EarlyStopping(Patience=100, Mindelta=0)
+            MaxLoss = Threshold(MaxLoss)
+            print('Restarting', loss_total.item())
             with torch.no_grad():
                 param_diff = 2*np.pi*(torch.rand(DiffSize, DiffSize) - 0.5)
             param_diff = param_diff.clone().detach().requires_grad_(True)
             optimizer = torch.optim.Adam([param_diff], lr=LR_init)
-            EarlyS = EarlyStopping(Patience=100, Mindelta=0)
-            _Counter += 1
-            if _Counter>5:
-                _MaxLoss = _MaxLoss+0.05
-                _Counter = 0
-                print('Increasing maximum loss', _MaxLoss)
         if EarlyS.should_stop:
             print('Found', loss_total.item())
             TotLoss = TotLoss[:_step+1]
