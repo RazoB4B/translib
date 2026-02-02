@@ -525,14 +525,14 @@ class IncreasingThreshold:
         self.Increase = Increase
         self.Counter = 0
 
-    def __call__(self, MaxLoss):
+    def __call__(self, MaxLoss, Loss):
         self.Counter += 1
         if self.Counter >= self.Patience:
             self.Counter = 0
-            print('Increasing maximum loss to', self.Increase + MaxLoss)
+            print(f'Loss={Loss}, Increasing maximum loss to {self.Increase + MaxLoss}')
             return self.Increase + MaxLoss
         else:
-            print(self.Counter)
+            print(f'Restarting {self.Counter}/{self.Patience-1}, Loss={Loss}')
             return MaxLoss
 
 
@@ -779,8 +779,7 @@ def FindDiffuser(Input, deph=0, LR_init=1, NPad=10, TryR=False, InitDiff=None, R
         EarlyS(loss_total.item())
         if TryR and (EarlyS.should_stop and loss_total.item()>MaxLoss):
             EarlyS = EarlyStopping(Patience=100, Mindelta=0)
-            MaxLoss = Threshold(MaxLoss)
-            print('Restarting', loss_total.item())
+            MaxLoss = Threshold(MaxLoss, loss_total.item())
             with torch.no_grad():
                 param_diff = 2*np.pi*(torch.rand(DiffSize, DiffSize) - 0.5)
             param_diff = param_diff.clone().detach().requires_grad_(True)
