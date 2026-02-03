@@ -519,7 +519,19 @@ class EarlyStopping:
 
 
 class IncreasingThreshold:
+    """
+    Function for the torch optimizer. Since it is considered a certain maximum of
+    error to accept or not a diffuser, and that such maximum can be hardly achieve
+    when considering systems with disorder.
 
+    Initialization: Threshold = IncreasingThreshol(Patience=5, Increase=0.05)
+    Usage: MaxLoss = Threshold(MaxLoss, Loss)
+
+    Patience: Number of times the solver will restar before increasing the threshold
+    Increase: Increase of the maximum threshold
+    MaxLoss: Current threshold
+    Loss: Error to minimice by the optimizer 
+    """
     def __init__(self, Patience=5, Increase=0.05):
         self.Patience = Patience
         self.Increase = Increase
@@ -529,12 +541,34 @@ class IncreasingThreshold:
         self.Counter += 1
         if self.Counter >= self.Patience:
             self.Counter = 0
-            print(f'Loss={Loss}, Increasing maximum loss to {self.Increase + MaxLoss}')
+            print(f'Increasing maximum loss to {self.Increase + MaxLoss}, Loss={Loss}')
             return self.Increase + MaxLoss
         else:
             print(f'Restarting {self.Counter}/{self.Patience-1}, Loss={Loss}')
             return MaxLoss
 
+
+class SavingBest:
+    """
+    Function for the torch optimizer. Keeps the best diffuser ever found if it is not
+    good enough for the current threshold. If threshold becomes larger than the storaged
+    diffuser, then this array is automatically taken.
+
+    Initialization: Best = SavingBest()
+    Usage: Best(Diff, Loss)
+
+    Diff: Diffuser
+    Loss: Error to minimice by the optimizer
+    """
+    def __init__(self):
+        self.Best = None
+        self.Loss = None
+
+    def __call__(self, Diff, Loss):
+        if ((self.Loss is None) or (Loss<self.Loss)):
+            self.Loss = Loss
+            self.Best = Diff
+            print(f'Saving best diffuser with loss {self.Loss}')
 
 
 def FindDiffusera0(Input, deph=0, LR_init=1, NPad=10, TryR=False, InitDiff=None, RMax=None, DiffSize=None, MaxSteps=None, MaxLoss=None):
@@ -558,6 +592,9 @@ def FindDiffusera0(Input, deph=0, LR_init=1, NPad=10, TryR=False, InitDiff=None,
 
     if MaxLoss is None:
         MaxLoss = 0.3
+
+    if MaxSteps is None:
+        MaxSteps = int(1e5)
 
     VMasks = VortexMask(DiffSize, 1, Max=RMax)
 
@@ -583,9 +620,6 @@ def FindDiffusera0(Input, deph=0, LR_init=1, NPad=10, TryR=False, InitDiff=None,
     else:
         param_diff = torch.from_numpy(InitDiff).clone().detach().to(torch.float32).to(device).requires_grad_(True)
         optimizer = torch.optim.Adam([param_diff], lr=LR_init)
-
-    if MaxSteps is None:
-        MaxSteps = int(1e5)
         
     # Optimization
     TotLoss = np.zeros([MaxSteps])
@@ -630,18 +664,12 @@ def FindDiffusera0(Input, deph=0, LR_init=1, NPad=10, TryR=False, InitDiff=None,
 
         EarlyS(loss_total.item())
         if TryR and (EarlyS.should_stop and loss_total.item()>_MaxLoss):
-            print('Restarting', _Counter+1, loss_total.item())
+            EarlyS = EarlyStopping(Patience=100, Mindelta=0)
+            MaxLoss = Threshold(MaxLoss, loss_total.item())
             with torch.no_grad():
                 param_diff = 2*np.pi*(torch.rand(DiffSize, DiffSize) - 0.5)
             param_diff = param_diff.clone().detach().requires_grad_(True)
             optimizer = torch.optim.Adam([param_diff], lr=LR_init)
-            EarlyS = EarlyStopping(Patience=100, Mindelta=0)
-            Threshold
-            _Counter += 1
-            if _Counter>5:
-                _MaxLoss = _MaxLoss+0.05
-                _Counter = 0
-                print('Increasing maximum loss', _MaxLoss)
         if EarlyS.should_stop:
             print('Found', loss_total.item())
             TotLoss = TotLoss[:_step+1]
@@ -696,6 +724,7 @@ def FindDiffuser(Input, deph=0, LR_init=1, NPad=10, TryR=False, InitDiff=None, R
     device = "cpu"
     EarlyS = EarlyStopping(Patience=100, Mindelta=0)
     Threshold = IncreasingThreshold(Patience=5, Increase=0.05)
+    Best = SavingBest()
 
     # Recieving and computing numpy arrays
     alpha = np.pi
@@ -712,6 +741,9 @@ def FindDiffuser(Input, deph=0, LR_init=1, NPad=10, TryR=False, InitDiff=None, R
 
     if MaxLoss is None:
         MaxLoss = 0.3
+
+    if MaxSteps is None:
+        MaxSteps = int(1e5)
 
     VMasks = VortexMask(DiffSize, 1, Max=RMax)
 
@@ -735,9 +767,6 @@ def FindDiffuser(Input, deph=0, LR_init=1, NPad=10, TryR=False, InitDiff=None, R
     else:
         param_diff = torch.from_numpy(InitDiff).clone().detach().to(torch.float32).to(device).requires_grad_(True)
         optimizer = torch.optim.Adam([param_diff], lr=LR_init)
-
-    if MaxSteps is None:
-        MaxSteps = int(1e5)
 
     # Optimization
     TotLoss = np.zeros([MaxSteps])
@@ -778,12 +807,17 @@ def FindDiffuser(Input, deph=0, LR_init=1, NPad=10, TryR=False, InitDiff=None, R
 
         EarlyS(loss_total.item())
         if TryR and (EarlyS.should_stop and loss_total.item()>MaxLoss):
-            EarlyS = EarlyStopping(Patience=100, Mindelta=0)
             MaxLoss = Threshold(MaxLoss, loss_total.item())
-            with torch.no_grad():
-                param_diff = 2*np.pi*(torch.rand(DiffSize, DiffSize) - 0.5)
-            param_diff = param_diff.clone().detach().requires_grad_(True)
-            optimizer = torch.optim.Adam([param_diff], lr=LR_init)
+            Best(param_diff, loss_total.item())
+            if Best.Loss < MaxLoss:
+                print(f'Best diffuser with loss {Best.Loss} has been previously found')
+                param_diff = Best.Best
+            else:
+                EarlyS = EarlyStopping(Patience=100, Mindelta=0)
+                with torch.no_grad():
+                    param_diff = 2*np.pi*(torch.rand(DiffSize, DiffSize) - 0.5)
+                param_diff = param_diff.clone().detach().requires_grad_(True)
+                optimizer = torch.optim.Adam([param_diff], lr=LR_init)
         if EarlyS.should_stop:
             print('Found', loss_total.item())
             TotLoss = TotLoss[:_step+1]
@@ -811,8 +845,10 @@ def FindBigDiffuser(Input, deph=0, Div=2, LR_init=1, NPad=10, RMax=None, DiffSiz
         _S1 = CropCenter(S1, DiffSize//(2**i))
 
         if i == Div:
+            print(f'Starting with a size of {len(_a02)}x{len(_a02)} pixels')
             Diff, _TotLoss, _ElapTime = FindDiffuser([_a02, _S0, _S1], deph, LR_init, NPad, True, RMax=RMax, DiffSize=DiffSize//(2**Div), MaxSteps=MaxSteps, MaxLoss=MaxLoss)
         else:
+            print(f'Increasing the size of the system to {len(_a02)}x{len(_a02)} pixels')
             Diff, _TotLoss, _ElapTime = FindDiffuser([_a02, _S0, _S1], deph, LR_init/2, NPad, False, InitDiff=Diff, RMax=RMax, MaxSteps=MaxSteps, MaxLoss=MaxLoss)
 
         if i != 0:
