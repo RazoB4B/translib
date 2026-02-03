@@ -61,6 +61,21 @@ def Trans1DDisord(_G, _s):
     return _p
 
 
+def Trans1DDisordSqrt(_G2, _s):
+    '''
+    Evaluates the statistical distribution of the transmission squared through 
+    a 1D disordered system with the adimensional length as parameter. 
+    See Eq. 2 of PRB 88, 205414 (2013)
+    
+    G: The transmission domain
+    s: The adimensional length
+    '''
+    _G = np.sqrt(_G2)
+    _p = Trans1DDisord(_G, _s)[:,0]/(2*_G)
+    _p = _p/np.trapezoid(_p, _G2)
+    return _p
+
+
 def LogTrans1DDisord(_lnG, _s):
     '''
     Evaluates the statistical distribution of the logarithm of the transmission 
@@ -72,6 +87,21 @@ def LogTrans1DDisord(_lnG, _s):
     '''
     _G = np.exp(_lnG)
     _p = _G*Trans1DDisord(_G, _s)[:,0]
+    _p = _p/np.trapezoid(_p, _lnG)
+    return _p
+
+
+def LogTrans1DDisordSqrt(_lnG, _s):
+    '''
+    Evaluates the statistical distribution of the logarithm of the transmission 
+    squared through a 1D disordered system with the adimensional length as parameter. 
+    See Eq. 2 of PRB 88, 205414 (2013)
+    
+    lnG: The logarithm of the transmission domain
+    s: The adimensional length
+    '''
+    _G = np.exp(_lnG)
+    _p = _G*Trans1DDisordSqrt(_G, _s)
     _p = _p/np.trapezoid(_p, _lnG)
     return _p
 
