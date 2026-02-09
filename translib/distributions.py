@@ -7,6 +7,9 @@ Created on Thu Oct 23 17:02:38 2025
 """
 import numpy as np
 import scipy.special as sc
+import multiprocessing as mp
+from tqdm import tqdm
+from functools import partial
 
 
 def IntensChaos(_I, _phaseRigidity):
@@ -61,73 +64,12 @@ def Trans1DDisord(_G, _s):
     return _p
 
 
-def Trans1DDisordSym(_G, _s):
-    '''
-    Evaluates the statistical distribution of the transmission through a 1D disordered
-    system with the adimensional length as parameter. 
-    See Eq. 2 of PRB 88, 205414 (2013)
-    
-    G: The transmission domain
-    s: The adimensional length
-    '''
-    pH = Trans1DDisord(_G, _s)   # P(T_H)
-    pH = np.repeat(pH, len(_G), axis=1)
-    
-    G, Gh = np.meshgrid(_G, _G, indexing="ij")
-    x = (2 - 2*Gh + Gh**2 - Gh**2/G) / (2*(1 - Gh))
-    
-    mask = np.abs(x) < 1
-
-    sqrt_term = np.zeros_like(x)
-    sqrt_term[mask] = 1 / np.sqrt(1 - x[mask]**2)
-
-#    f = np.zeros_like(x)
-#    f[mask] = Gh[mask]**2 / (2*np.pi*G[mask]**2*(1 - Gh[mask]))
-    f = Gh**2 / (2*np.pi*G**2*(1 - Gh))
-
-
-    p = pH * f * sqrt_term
-    p = np.trapezoid(p, Gh, axis=1)
-    p = p/np.trapezoid(p, _G)
-    return p
-
-
-def LogTrans1DDisordSym(_lnG, _s):
-    '''
-    Evaluates the statistical distribution of the logarithm of the transmission 
-    through a 1D disordered system with the adimensional length as parameter. 
-    See Eq. 2 of PRB 88, 205414 (2013)
-    
-    lnG: The logarithm of the transmission domain
-    s: The adimensional length
-    '''
-    _G = np.exp(_lnG)
-    _p = _G*Trans1DDisordSym(_G, _s)
-    _p = _p/np.trapezoid(_p, _lnG)
-    return _p
-
-
-def Trans1DDisordSqrt(_G2, _s):
-    '''
-    Evaluates the statistical distribution of the transmission squared through 
-    a 1D disordered system with the adimensional length as parameter. 
-    See Eq. 2 of PRB 88, 205414 (2013)
-    
-    G: The transmission domain
-    s: The adimensional length
-    '''
-    _G = np.sqrt(_G2)
-    _p = Trans1DDisord(_G, _s)[:,0]/(2*_G)
-    _p = _p/np.trapezoid(_p, _G2)
-    return _p
-
-
 def LogTrans1DDisord(_lnG, _s):
     '''
-    Evaluates the statistical distribution of the logarithm of the transmission 
-    through a 1D disordered system with the adimensional length as parameter. 
+    Evaluates the statistical distribution of the logarithm of the transmission
+    through a 1D disordered system with the adimensional length as parameter.
     See Eq. 2 of PRB 88, 205414 (2013)
-    
+
     lnG: The logarithm of the transmission domain
     s: The adimensional length
     '''
@@ -137,17 +79,62 @@ def LogTrans1DDisord(_lnG, _s):
     return _p
 
 
-def LogTrans1DDisordSqrt(_lnG, _s):
+def Trans1DDisordSymOnePoint(_G0, _s, _N=10000001):
     '''
-    Evaluates the statistical distribution of the logarithm of the transmission 
-    squared through a 1D disordered system with the adimensional length as parameter. 
-    See Eq. 2 of PRB 88, 205414 (2013)
-    
+    Given the number of point used to compute the statistical distribution of the
+    transmission through a 1D disordered system with mirror disorder, and the
+    usage of the memory, this function helps to paralelize such distributions.
+
+    G0: Point in the transmission domain
+    s: The adimensional length
+    N: Number of points to integrate
+    '''
+    _Gh = np.linspace(0, 1, _N)
+    _Gh = _Gh[1:-1]
+    pH = Trans1DDisord(_Gh, _s)   # P(T_H)
+    pH = pH.squeeze()
+
+    x = (2 - 2*_Gh + _Gh**2 - _Gh**2/_G0) / (2*(1 - _Gh))
+    mask = np.abs(x) < 1
+    sqrt_term = np.zeros_like(x)
+    sqrt_term[mask] = 1 / np.sqrt(1 - x[mask]**2)
+    f = _Gh**2 / (2*np.pi*_G0**2*(1 - _Gh))
+
+    p = pH * f * sqrt_term
+    p = np.trapezoid(p, _Gh)
+    return p
+
+
+def Trans1DDisordSym(G, s, N=10000001, nproc=25):
+    '''
+    Evaluates the statistical distribution of the transmission through a 1D disordered
+    system with mirror disorder and  the adimensional length as parameter s. 
+
+    G: The transmission domain
+    s: The adimensional length
+    N: Number of points to integrate
+    nproc: Number of procesors in the paralelization
+    '''
+    worker = partial(Trans1DDisordSymOnePoint, _s=s/2, _N=N)
+
+    with mp.Pool(processes=nproc) as pool:
+        P = list(tqdm(pool.imap(worker, G),total=len(G)))
+    return P
+
+
+def LogTrans1DDisordSym(_lnG, _s, _N=10000001, nproc=25):
+    '''
+    Evaluates the statistical distribution of the logarithm of the  transmission
+    through a 1D disordered system with mirror disorder and  the adimensional 
+    length as parameter s.
+
     lnG: The logarithm of the transmission domain
     s: The adimensional length
+    N: Number of points to integrate
+    nproc: Number of procesors in the paralelization
     '''
     _G = np.exp(_lnG)
-    _p = _G*Trans1DDisordSqrt(_G, _s)
+    _p = _G*Trans1DDisordSym(_G, _s, _N, nproc)
     _p = _p/np.trapezoid(_p, _lnG)
     return _p
 
