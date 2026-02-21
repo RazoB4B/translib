@@ -5,8 +5,6 @@ Created on Tue Nov  4 18:20:48 2025
 
 @author: alberto-razo
 """
-
-import torch
 import numpy as np
 from scipy.signal import argrelmax
 
@@ -81,7 +79,7 @@ def FindMin(_arr, _radius=25):
 def FindDistances(_Pos1, _Pos2, _metric=None):
     """
     Given two set of positions, computes the distribution of minimum distances 
-    between both sets, starting from the set 1
+    between both sets, starting from the point of the set 1
     
     Pos1: the array of positions 1
     Pos2: the array of positions 2
@@ -113,23 +111,3 @@ def RadialHistogram(_dist, _bins):
     _hist = _hist/_edge
     _hist = _hist/np.trapezoid(_hist*2*np.pi*_edge, _edge)
     return _hist, _edge
-
-
-def L2_Norm(x, y):
-    """
-    Computes the norm in 2D between two different arrays
-    
-    x: the array 1
-    y: the array 2
-    """
-    return np.sqrt(np.mean(np.abs(x - y)**2))
-
-
-def L2_Norm_Torch(x, y):
-    """
-    Computes the norm in 2D between two different tensors
-    
-    x: the array 1
-    y: the array 2
-    """
-    return torch.sqrt(torch.mean(torch.abs(x - y)**2))
