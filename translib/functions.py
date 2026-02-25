@@ -111,3 +111,13 @@ def RadialHistogram(_dist, _bins):
     _hist = _hist/_edge
     _hist = _hist/np.trapezoid(_hist*2*np.pi*_edge, _edge)
     return _hist, _edge
+
+
+def L2_Norm(x, y):
+    """
+    Computes the norm in 2D between two different arrays
+
+    x: the array 1
+    y: the array 2
+    """
+    return np.sqrt(np.mean(np.abs(x - y)**2))
