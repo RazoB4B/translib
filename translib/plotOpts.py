@@ -99,7 +99,8 @@ def Colorize(array, theme="dark", saturation=1.0, beta=1.4, transparent=False,
     else:
         return c
     
-def CenterProfile(Data, save=False, FigSize=None):
+    
+def Profiles(Data, save=False, FigSize=None):
     if FigSize is None:
         FigSize = (5,5)
     Spec = gridspec.GridSpec(ncols=2, nrows=2, wspace=0.05, hspace=0.05,

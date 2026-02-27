@@ -258,7 +258,7 @@ def get_lee_holo(complex_pattern, period, center, angle, nbits):
     return mask
 
 
-def GetExperimentDMD(Diffuser, angle, nfigs, deph=0, NPad=10, WinSize=1, clock=True, Max=None, Min=None):
+def GetExperimentDMD(Diffuser, angle, nfigs, deph=0, NPad=10, clock=True, WinSize=None, Max=None, Min=None):
     """
     Generates a serie of speckle patterns as the once obtained from the experiment
     where only the intensity can be measured and using a turning section
@@ -274,6 +274,8 @@ def GetExperimentDMD(Diffuser, angle, nfigs, deph=0, NPad=10, WinSize=1, clock=T
     Min: Cuts the values with r<Min
     """
     N = Diffuser.shape[0]
+    if WinSize is None:
+        WinSize = N
     Masks = SectionMask(N, nfigs, angle, deph, clock, Max=Max, Min=Min)
     speckles = []
     for _mask in Masks:
@@ -333,7 +335,7 @@ def DoubleSectionMask(size, nfigs, angle1, angle2, deph1, deph2, rInt=0.5, clock
         return Masks
     
 
-def GetFarField(array, Npad=5, WinSize=5, conj=False):
+def GetFarField(array, Npad=5, WinSize=None):
     """
     Computes the far field propagation of a given array
 
@@ -343,13 +345,15 @@ def GetFarField(array, Npad=5, WinSize=5, conj=False):
     conj: if True shifts by one the pixel the final image
     """
     n = len(array)
-    pad = (Npad-1)*n//2
+    if WinSize is None:
+        WinSize = n
+    pad = int((Npad-1)*n)//2
     array = np.pad(array, pad, mode='constant')
     array = np.fft.fftshift(np.fft.fft2(np.fft.ifftshift(array)))
-    return CropCenter(array, int(n*WinSize), conj)
+    return CropCenter(array, WinSize)
 
 
-def CropCenter(array, crop, conj=False):
+def CropCenter(array, crop):
     """
     Crops the central section of a given array
 
@@ -360,14 +364,10 @@ def CropCenter(array, crop, conj=False):
     x, y = array.shape
     startx = x//2-(crop//2)
     starty = y//2-(crop//2)
-    if conj and np.mod(x,2)==0 and (x-crop)>1 and (y-crop)>1:
-        array = array[startx+1:startx+crop+1, starty+1:starty+crop+1]
-    else:
-        array = array[startx:startx+crop, starty:starty+crop]
-    return array
+    return array[startx:startx+crop, starty:starty+crop]
 
 
-def GetFarDiffuser(array, Npad=5, WinSize=5):
+def GetFarDiffuser(array, Npad=5, WinSize=None):
     """
     Computes the far diffuser of a given propagated array
 
@@ -376,10 +376,12 @@ def GetFarDiffuser(array, Npad=5, WinSize=5):
     WinSize: the size of the final figure
     """
     n = len(array)
-    pad = (Npad-1)*n//2
+    if WinSize is None:
+        WinSize = n
+    pad = int((Npad-1)*n)//2
     array = np.pad(array, pad, mode='constant')
     array = np.fft.ifftshift(np.fft.ifft2(np.fft.fftshift(array)))
-    return CropCenter(array, int(n*WinSize))
+    return CropCenter(array, WinSize)
 
 
 def Contrast(IntensityArray):
