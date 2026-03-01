@@ -1,3 +1,141 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+Created on Sat Feb 28 17:37:50 2026
+
+@author original: kuhl
+@author: larazolopez
+"""
+
+import numpy as np
+
+def hi_base(Frqs, Data, Reflection=False, FrqI=None, FrqF=None, FrqMin=None, 
+            FrqMax=None, Phase=None,
+            var_trunc=200, 
+            plot_flag=False, noline=True, 
+            polish=10, MinAmpl=1e-5, PtError=0.1, hi_filter=1e-4, oldflag=False):
+    '''
+    Frqs: the frequency axis
+    Data: the conmplex data to fit
+    Reflection: if True adjusts the constant from s_ii=\delta_ii-\sum of Lorentzians
+    FrqI: the lowest frequency
+    FrqF: the highest frequency
+    FrqMin, FrqMax: defines the interval for which resonance frequencies are taken into account (remove border effects)
+    Phase: if reflection an additional phase takes into account that the coupling to the antenna is not constant and it is a function of the frequency
+         phi is either a scalar or of length data 
+    ################
+    var_trunc: number of points taken from the time signal obbtained by FFT\n
+    ------------------
+    returns (info, ListOFResonances)
+    info is a dictionary that contains:
+        'nRes': number of resonances
+        'FrqI','FrqF' : maximal and minimal frequency
+        'valmin','valmax' : 
+        'fit_slope',fit_const' : slope and constant of the linear fit performed 
+            after hi to calculate the deviations
+    if oldflag=True the return gives back erg structure originating from idl
+    '''
+    if FrqI in None:
+        FrqI = Frqs[0]
+    if FrqF is None:
+        FrqF = Frqs[-1]  
+    if FrqMin is None:
+        FrqMin = FrqI
+    if FrqMax is None:
+        FrqMax = FrqF   
+          
+    dFrq = np.ptp(Frqs)/Frqs.size       # Frequency spacing 
+    FrqC = (FrqI+FrqF)*0.5              # Central frequency
+    FrqInds = np.where((Frqs >= FrqI) & (Frqs <=FrqF))[0]
+    FrqsPart = Frqs[FrqInds]            # Cutting the frequency according to the imposed limits
+    tau = 2*np.pi/(FrqF-FrqI)           # Time-stepwidth in fft multiplied with 2 pi
+
+    if Reflection: # in case of reflection the constant or the phase needs to be substracted
+        if Phase is not None:
+            DataPart = 1 - Data[FrqInds] * np.exp(1j*Phase[FrqInds])
+        else:
+            DataPart = 1 - Data[FrqInds]
+    else:
+        DataPart = Data[FrqInds]
+        
+    k_index = np.arange(0, len(DataPart))
+    # ATTENTION: hi_fourier expects a data array which is the fourier transform of data(nu+FrqC)
+    # i.e the initial data on the intervall [FrqI,FrqF] but shifted by FrqC. As the FFT asumes that
+    # the data are on the frequency range [0,FrqF-FrqI] an aditional phase shift
+    # has to be taken into account! This is done by (-1)^k_index
+    FTData = np.fft.ifft(DataPart) * (-1)**k_index * len(DataPart)  # To check if this normalization is interesting or useful
+    # multiplication of len() to have the same definition of FFT as in IDL
+    ###################
+   
+    data_fft_trunc = FTData[0:var_trunc+1]  #cutoff of fft-Data after trunc datapoints
+    
+    hi_erg = hi_fourier(data_fft_trunc, FrqC, FrqI, FrqF, tau, Stepfrq=dFrq, polish=polish, PtError=PtError, MinAmpl=MinAmpl)  #call hi fourier
+    if len(hi_erg) == 0:
+        """No resonances returned by hi_fourier"""
+        return None
+    # Filter noise resonances: 
+    # Only resonances with sufficent resonance depth/height are taken into account
+    val = np.where((np.abs(hi_erg[:,1])/np.imag(hi_erg[:,0])) >= hi_filter)[0]
+    n_res= len(val) # number of valid resonances
+    hi_erg =  hi_erg[val,:]
+
+    #Start reconstruction
+    Ausschnitt=np.where((FrqsPart >= FrqMin) & (FrqsPart <= FrqMax))[0]
+
+    Rekonstr = resToData(FrqsPart[Ausschnitt], hi_erg)
+    ErrorArr = Rekonstr - DataPart[Ausschnitt] #deviation of hi reconstruction and original data
+    erg=np.zeros(9+2*n_res,dtype=complex)
+    if noline:  #if keyword /noline is set, then no additional fit of a linear backgrund is performed
+        slope_re,const_re,chinrRe=(0,0,0)
+        slope_im,const_im,chinrIm=(0,0,0)
+        Error=np.sum(np.abs(ErrorArr)**2) # Error is square sum of ErrorArr
+    else :  #else the linear line is fitted
+        #fit linear slope to ErrorArr
+        (slope_re,const_re),chinrRe=np.linalg.lstsq(np.vstack([FrqsPart[Ausschnitt],np.ones(len(FrqsPart[Ausschnitt]))]).T,np.real(ErrorArr), rcond=None)[0:2]
+        (slope_im,const_im),chinrIm=np.linalg.lstsq(np.vstack([FrqsPart[Ausschnitt],np.ones(len(FrqsPart[Ausschnitt]))]).T,np.imag(ErrorArr), rcond=None)[0:2]
+        Error=chinrRe+chinrIm  #error is the non reduced chisquare of the two linear fits
+    #Store Data in erg-Array
+    if oldflag:
+        erg[0]=n_res
+        erg[1]=Error  #error is the non reduced chisquare of the two linear fits
+        erg[2]=FrqI
+        erg[3]=FrqF
+        erg[4]=FrqMin
+        erg[5]=FrqMax
+        erg[6]=slope_re+1j*slope_im # complex slope for the linear fit
+        erg[7]=const_re+1j*const_im # complex constant for the linear fit
+        erg[8:8+n_res]=hi_erg[:,0]
+        erg[8+n_res:8+2*n_res]=hi_erg[:,1]
+        result=erg
+    else:
+        info={'nRes': n_res, 'error':Error, 
+              'FrqI':FrqI,'FrqF':FrqF, 'FrqMin':FrqMin,'FrqMax':FrqMax,
+              'fit_slope':slope_re+1j*slope_im, # complex slope for the linear fit              
+              'fit_const':const_re+1j*const_im # complex constant for the linear fit
+              }
+        result=(info,hi_erg[:,:])
+    if plot_flag:
+        plt.figure('Hi_FFT');plt.clf()
+        plt.semilogy(np.abs(FTData)**2,label='FFT_data')
+        plt.ylabel('|FFT|$^2$');plt.xlabel('datapoint n')
+        plt.axvline(var_trunc, ls=':', label=str(var_trunc))
+        if not noline:
+            Rekonstr+=(slope_re+1j*slope_im)*FrqsPart[Ausschnitt] + const_re+1j*const_im
+        if Reflection:
+            ylabel_str='Reflection {0}S_{{ii}}{1}' # {{ ans }} used due to ''.format later on
+            DataPart+=0
+            Rekonstr+=1#1-.5
+            #Rekonstr+=-( (slope_re+1j*slope_im)*frq_part[Ausschnitt]+(const_re+1j*const_im))
+        else:
+            ylabel_str='Transmission {0}S_{{ij}}{1}'
+        res=np.array([ np.real(i[0]) for i in hi_erg])
+        plot4x4((FrqsPart,FrqsPart[Ausschnitt]),(DataPart,Rekonstr),labels=['Original data','Reconstruction'],title='Hi_ControlAll', res=res)
+        diff=DataPart[Ausschnitt]-Rekonstr
+        frq_diff=FrqsPart[Ausschnitt]
+        plot4x4((frq_diff,),(diff,),labels=('data-reconstr',),title='Hi_ControlAll Diff')
+    
+    return result#erg
+
 # -*- coding: utf-8 -*-
 """
 Originally from IDL implementation
@@ -14,7 +152,6 @@ Created on Thu Mar 31 18:33:24 2016
 
 @author: kuhl
 """
-import numpy as np
 import scipy.linalg as la
 import matplotlib.pyplot as plt
 from mesopylib.utilities.plot.plot_exp_spectra import plot4x4
@@ -272,137 +409,6 @@ def resToData(frq, Res, Ampl=None):
         for i in np.arange(0, len(Res)) :
             result += Ampl[i]/(frq - Res[i])
     return result
-
-    
-def hi_base(frq,data,w1=None,w2=None,var_trunc=200,valmin=None,valmax=None, stepfrq=None, 
-            plot_flag=False, noline=True, reflection_flag=True, phi=None,
-            polish=10, MinAmpl=1e-5, PtError=0.1, hi_filter=1e-4, oldflag=False):
-    r"""
-    frq: frequency axis\n
-    data: complex data for frq\n
-    w1: lower frequency\n
-    w2: upper frequency\n
-    var_trunc: number of points taken from the time signal obbtained by FFT\n
-    valmin,valmax: defines range for which resonance frequencies are taken into account (remove border effects)\n
-    reflection_flag: adjusts the constant from s_ii=\delta_ii-\sum of Lorentzians\n
-    phi: if reflection an additional phase takes into account that \delta_ii is not constant as function of frequency\n
-         phi is either a scalar or of length data 
-    ------------------
-    returns (info, ListOFResonances)
-    info is a dictionary that contains:
-        'nRes': number of resonances
-        'w1','w2' : maximal and minimal frequency
-        'valmin','valmax' : 
-        'fit_slope',fit_const' : slope and constant of the linear fit performed 
-            after hi to calculate the deviations
-    if oldflag=True the return gives back erg structure originating from idl
-    """
-    # set default values
-    if stepfrq is None:
-        stepfrq=np.ptp(frq)/frq.size
-    if w1 is None:
-        w1=frq[0]
-    if w2 is None:
-        w2=frq[-1]
-    if valmax is None:
-        valmax=w2
-    if valmin is None:
-        valmin=w1
-    if valmax is None:
-        valmax=w2
-        
-    w0=(w1+w2)*0.5
-    tau=np.pi/(w2-w0) #tau=2*pi/(fftmax-fftmin) is the time-stepwidth in fft multiplied with 2 pi
-    fft_CutOut = np.where((frq >= w1) & (frq <=w2))[0]
-    frq_part = frq[fft_CutOut]   #The parts indicated by fftmin and fftmax are cut out of the
-    if reflection_flag:
-        # in case of reflection the constant or the phase needs to be substracted
-        if phi is not None:
-            data_part=data[fft_CutOut]*np.exp(1j*phi[fft_CutOut])-1
-            data_part=data[fft_CutOut]*np.exp(1j*phi[fft_CutOut])
-            #data_part=data[fft_CutOut]*np.exp(1j*np.linspace(0,1,len(fft_CutOut))*(45.))-1
-            #data_part=data[fft_CutOut]*np.exp(1j*np.linspace(0,1,len(fft_CutOut))*(45.)))-1
-        else:
-            data_part = data[fft_CutOut]-1 #frequency/Data-Array    
-    else:
-        data_part = data[fft_CutOut] #frequency/Data-Array
-
-    k_axis=np.arange(0,len(frq_part))
-    #ATTENTION: hi_fourier expects a data array which is the fourier transform of data(nu+w0)
-    #i.e the initial data on the intervall [w1,w2] but shifted by w0. As the FFT asumes that
-    #the data are on the frequency range [0,w2-w1] an aditional phase shift
-    #has to be taken into account! This is done by (-1)^k_axis
-    data_fft = np.fft.ifft(data_part)*(-1)**k_axis*len(data_part)
-    # multiplication of len() to have the same definition of FFT as in IDL
-    data_fft_trunc = data_fft[0:var_trunc+1]  #cutoff of fft-Data after trunc datapoints
-    
-    #import pdb; pdb.set_trace()
-    hi_erg = hi_fourier(data_fft_trunc, w0, w1, w2, tau, Stepfrq=stepfrq, polish=polish, PtError=PtError, MinAmpl=MinAmpl)  #call hi fourier
-    if len(hi_erg) == 0:
-        """No resonances returned by hi_fourier"""
-        return None
-    # Filter noise resonances: 
-    # Only resonances with sufficent resonance depth/height are taken into account
-    val = np.where((np.abs(hi_erg[:,1])/np.imag(hi_erg[:,0])) >= hi_filter)[0]
-    n_res= len(val) # number of valid resonances
-    hi_erg =  hi_erg[val,:]
-
-    #Start reconstruction
-    Ausschnitt=np.where((frq_part >= valmin) & (frq_part <= valmax))[0]
-
-    Rekonstr = resToData(frq_part[Ausschnitt], hi_erg)
-    ErrorArr = Rekonstr - data_part[Ausschnitt] #deviation of hi reconstruction and original data
-    erg=np.zeros(9+2*n_res,dtype=complex)
-    if noline:  #if keyword /noline is set, then no additional fit of a linear backgrund is performed
-        slope_re,const_re,chinrRe=(0,0,0)
-        slope_im,const_im,chinrIm=(0,0,0)
-        Error=np.sum(np.abs(ErrorArr)**2) # Error is square sum of ErrorArr
-    else :  #else the linear line is fitted
-        #fit linear slope to ErrorArr
-        (slope_re,const_re),chinrRe=np.linalg.lstsq(np.vstack([frq_part[Ausschnitt],np.ones(len(frq_part[Ausschnitt]))]).T,np.real(ErrorArr), rcond=None)[0:2]
-        (slope_im,const_im),chinrIm=np.linalg.lstsq(np.vstack([frq_part[Ausschnitt],np.ones(len(frq_part[Ausschnitt]))]).T,np.imag(ErrorArr), rcond=None)[0:2]
-        Error=chinrRe+chinrIm  #error is the non reduced chisquare of the two linear fits
-    #Store Data in erg-Array
-    if oldflag:
-        erg[0]=n_res
-        erg[1]=Error  #error is the non reduced chisquare of the two linear fits
-        erg[2]=w1
-        erg[3]=w2
-        erg[4]=valmin
-        erg[5]=valmax
-        erg[6]=slope_re+1j*slope_im # complex slope for the linear fit
-        erg[7]=const_re+1j*const_im # complex constant for the linear fit
-        erg[8:8+n_res]=hi_erg[:,0]
-        erg[8+n_res:8+2*n_res]=hi_erg[:,1]
-        result=erg
-    else:
-        info={'nRes': n_res, 'error':Error, 
-              'w1':w1,'w2':w2, 'valmin':valmin,'valmax':valmax,
-              'fit_slope':slope_re+1j*slope_im, # complex slope for the linear fit              
-              'fit_const':const_re+1j*const_im # complex constant for the linear fit
-              }
-        result=(info,hi_erg[:,:])
-    if plot_flag:
-        plt.figure('Hi_FFT');plt.clf()
-        plt.semilogy(np.abs(data_fft)**2,label='FFT_data')
-        plt.ylabel('|FFT|$^2$');plt.xlabel('datapoint n')
-        plt.axvline(var_trunc, ls=':', label=str(var_trunc))
-        if not noline:
-            Rekonstr+=(slope_re+1j*slope_im)*frq_part[Ausschnitt] + const_re+1j*const_im
-        if reflection_flag:
-            ylabel_str='Reflection {0}S_{{ii}}{1}' # {{ ans }} used due to ''.format later on
-            data_part+=0
-            Rekonstr+=1#1-.5
-            #Rekonstr+=-( (slope_re+1j*slope_im)*frq_part[Ausschnitt]+(const_re+1j*const_im))
-        else:
-            ylabel_str='Transmission {0}S_{{ij}}{1}'
-        res=np.array([ np.real(i[0]) for i in hi_erg])
-        plot4x4((frq_part,frq_part[Ausschnitt]),(data_part,Rekonstr),labels=['Original data','Reconstruction'],title='Hi_ControlAll', res=res)
-        diff=data_part[Ausschnitt]-Rekonstr
-        frq_diff=frq_part[Ausschnitt]
-        plot4x4((frq_diff,),(diff,),labels=('data-reconstr',),title='Hi_ControlAll Diff')
-    
-    return result#erg
     
 def hi_border( data, frq,  fftmin=0, fftmax=0, valmin=None, valmax=None, 
     hi_filter=0, var_fftmin=None, var_fftmax=None, var_trunc=None, PtError=0.01, 
