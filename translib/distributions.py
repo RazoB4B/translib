@@ -78,7 +78,7 @@ def LogTrans1DDisord(_lnG, _s):
     _p = _p/np.trapezoid(_p, _lnG)
     return _p
 
-
+#%%
 def Trans1DDisordSymOnePoint(_G0, _s, _N=10000001):
     '''
     Given the number of point used to compute the statistical distribution of the
@@ -121,7 +121,6 @@ def Trans1DDisordSym(G, s, N=10000001, nproc=25):
         P = list(tqdm(pool.imap(worker, G),total=len(G)))
     return P
 
-
 def LogTrans1DDisordSym(_lnG, _s, _N=10000001, nproc=25):
     '''
     Evaluates the statistical distribution of the logarithm of the  transmission
@@ -137,7 +136,7 @@ def LogTrans1DDisordSym(_lnG, _s, _N=10000001, nproc=25):
     _p = _G*Trans1DDisordSym(_G, _s, _N, nproc)
     _p = _p/np.trapezoid(_p, _lnG)
     return _p
-
+#%%s
 
 def Inten1DDisordNeupane(_x, _s, _etaL=1e1):
     '''
@@ -153,8 +152,27 @@ def Inten1DDisordNeupane(_x, _s, _etaL=1e1):
     _fun = np.exp(-(Eta-(X-0.5)*_s)**2/_s)*(np.tanh(Eta) + Eta/np.cosh(Eta)**2)
     return 1-np.sqrt(1/(_s*np.pi))*np.trapezoid(_fun, _eta)
 
+#%%
+def Inten1DDisordMelloOnePoint(_T1, _s2, _N=100001):
+    '''
+    Given the number of point used to compute the statistical distribution of the
+    transmission through a 1D disordered system with mirror disorder, and the
+    usage of the memory, this function helps to paralelize such distributions.
 
-def Inten1DDisordMello(_x, _s, _NG=1001):
+    G0: Point in the transmission domain
+    s: The adimensional length
+    N: Number of points to integrate
+    '''
+    T2 = np.linspace(0, 1, _N+2)
+    T2 = T2[1:-1]
+    
+    Dis = _T1*(2-T2)/(_T1+T2-_T1*T2)
+    Dis = Dis[:,None]
+    P2 = Trans1DDisord(T2, _s2)
+    return np.trapezoid(P2*Dis, T2, axis=0)
+
+
+def Inten1DDisordMello(_x, _s, _N=100001, nproc=25):
     '''
     Evaluates intensity as function of the position inside a 1D disordered system
     See Eq. (11a) of Physica E 82, 261-265 (2016)
@@ -166,18 +184,15 @@ def Inten1DDisordMello(_x, _s, _NG=1001):
     s1 = _s*_x
     s2 = _s*(1-_x)
 
-    G = np.linspace(0, 1, _NG+2)
-    G = G[1:-1]
-
-    T1, T2 = np.meshgrid(G, G, indexing="ij")
-    Dis = T1*(2-T2)/(T1+T2-T1*T2)
-    Dis = np.dstack([Dis]*len(_x))
+    T1 = np.linspace(0, 1, _N+2)
+    T1 = T1[1:-1]
     
-    P1 = Trans1DDisord(G, s1)
-    P2 = Trans1DDisord(G, s2)
-    P1 = np.dstack([P1]*len(G))
-    P2 = np.dstack([P2]*len(G))
-
-    P1 = np.transpose(P1, (0, 2, 1))
-    P2 = np.transpose(P2, (2, 0, 1))
-    return np.trapezoid(np.trapezoid(P1*P2*Dis, G, axis=0), G, axis=0)
+    P1 = Trans1DDisord(T1, s1)
+    
+    worker = partial(Inten1DDisordMelloOnePoint, _s2=s2, _N=_N)
+    
+    with mp.Pool(processes=nproc) as pool:
+        P = list(tqdm(pool.imap(worker, T1), total=len(T1)))
+    
+    return np.trapezoid(P1*P, T1, axis=0)
+#%%
