@@ -8,15 +8,148 @@ Created on Sat Feb 28 17:37:50 2026
 """
 
 import numpy as np
+import scipy.linalg as la
 
-def hi_base(Frqs, Data, Reflection=False, FrqI=None, FrqF=None, FrqMin=None, 
+
+def HarmInvPade(Data, nd, polish=10):
+    '''
+    Data: The data to fit
+    '''
+    """
+        eq{11} and 
+        c_(n) = Sum(a_k * c_(n+k), k)\n
+        c_(n) = Sum(a_k * c_(n+k), k) for a_k -> cof\n
+        c_n = Sum(d_k * z_k^n, k) to calculate dk	{see eq. 7}
+        --------------------\n
+        Input:
+          cd : data (on time axis)
+          nd : number of points taken into account
+          polish = 10 : int (number of polishing the result)
+        Example: 
+        HarmInv_Pade( data[], 120, polish=10):
+    """
+    #Variables
+    jmax = (nd-2)//2
+    a = np.zeros(shape=(jmax+1,jmax+1), dtype=np.complex128)
+    af = np.zeros(shape=(jmax+1,jmax+1), dtype=np.complex128)
+    b = np.zeros(shape=(jmax+1), dtype=np.complex128)
+    cof = np.zeros(shape=(jmax+2), dtype=np.complex128)
+    dk = np.zeros(shape=(jmax+1), dtype=np.complex128)
+    dcomplex1 = np.complex128(1) # 1+0j
+
+    #Generate eqnarr c_(n) = Sum(a_k * c_(n+k), k)     {see eq. 11}
+    for j in np.arange(0, jmax+1): 
+        a[:,j]=Data[j+1 : j+1+jmax+1]
+    af = a[:,:]
+    b[0:jmax] = Data[0:jmax]
+    cof[1:] = b
+
+    #Solve c_(n) = Sum(a_k * c_(n+k), k) for a_k -> cof 	 {see eq. 11}
+    af,ipiv,status_ludc1 = la.lapack.zgetrf(a)
+    #ipiv is the permutation in the LU decomp. A = ipiv * L * U
+    cof[1:],status_ludsol = la.lapack.zgetrs(af,ipiv,b)
+#    lu_piv = la.lu_factor(a)       # use highlvel functions
+#    cof[1:]=la.lu_solve(lu_piv,b)  # "
+    cof[0] = -1.0e0	#{see eq. 10} a_0 = -1 if we sum k from 0 instead
+
+    #Build Hessenberg-matrix		{see eq. 14}
+    a *= 0
+    a[0, 0:jmax+1] = -cof[jmax-np.arange(jmax+1)]/cof[jmax+1]
+    for j in np.arange(1, jmax+1): 
+        a[j,j-1] = dcomplex1
+    #Calculate eigenvalues of the Hessenberg-matrix
+    uk=la.eigvals(a)
+    status_hqr=0
+    if (status_hqr != 0): 
+        print(('1: la_hqr (<-f08psf): status={0}'.format(status_hqr)))
+    if polish is not None :
+        uk=root_polish(cof, uk, jmax, polish)
+    #Generate eqnarr c_n = Sum(d_k * z_k^n, k) to calculate dk	{see eq. 7}
+    for j in np.arange(0, jmax+1): 
+        a[j,0:jmax+1] = (uk[j])**np.arange(jmax+1) * dcomplex1 #Vandermondsche-matrix
+    af = a[:,:]
+    dk[0:jmax+1] = Data[0:jmax+1]    
+    b = dk
+
+    #Solve eqnarr c_n = Sum(d_k * z_k^n, k) for dk	{see eq. 7}
+    af,ipiv,status_ludc2 = la.lapack.zgetrf(a.T)
+    if (status_ludc2 != 0): 
+        print(('2: la_ludc (<-f07arf): status=', status_ludc2))
+    dk,status_ludsol = la.lapack.zgetrs(af,ipiv,b)
+    return uk, dk
+
+def hi_fourier(cd, w0, wl, wr, tau, polish=10, Stepfrq=None, PtError=0.1, MinAmpl=1e-7):
+    r'''
+    returns an complex np.array 
+    each element contains [complex frequency, complex amplitude, absolute amplitude, err]
+    
+    cd: FFTData which is assumed to be equal to \sum_k (-i*Ak)*e^{i(wk-w0)t} if cd is obtained by Fourier Transformation of Frequency data, data has to be hifted by wo before transforming
+    wl: left border of frequency range, 
+    wr: right border of frequency range, 
+    w0: middle of frequency range, 
+    tau: 2*pi*deltaT where deltaT =1/(w2-w1)
+    is taken from FFT,
+    Stepfrq: distance between two measured frequencies
+    polish: defining how often rootpolish is used in HarmInvPade
+    
+    hi_fourier returns the complex positions wk of the resonances and the amplitudes Ak which contribute to the initial signal cd
+    Only resonances between wl and wr are accepted. 
+    Furthermore only resonaces which shift less then PtError when the initial data cd is shifted by one point are accepted 
+      and the abs-value of the amplitude has to exeed MinAmpl.
+    ''' 
+    #Set Constants
+    nd = len(cd)-2   # nd: Number of Datapoints minus 2
+    result=[]        # Complex array to return result
+
+    jmax = (nd-2)//2  # jmax: (Number of data- 4)/2
+    freq=np.zeros(shape=(2,jmax+1), dtype=complex) #here the frequencies of the resonances will which are obtained by the shifted and unshifted data
+    ampl=np.zeros(shape=(2,jmax+1), dtype=complex) #here the amplitudes if the resonances will be stored which are obtained by the shifted and unshifted data
+
+    # HarmInv-Pade is calculated two times with data shifted by one Datapoint
+    for p in np.arange(0,2):
+        uk,dk=HarmInvPade(cd[p:nd+p+1], nd, polish=polish)
+        wk=np.zeros(shape=(len(dk)), dtype=np.complex128) # here the extracted Resonances Wk will be stored
+        wk = (-1j / tau) * np.log(uk)                     # uk was exp(i*tau(Wk-w0)) ->wk is Wk-wo
+        dk = dk * (-1J * Stepfrq / (2 * np.pi))           # ??? Wieso werden die dks noch einmal reskaliert
+        dk = dk/uk**p  # When data has been shifted the Amplitude has to be corrected
+
+        tmp=np.argsort(np.real(wk))  # the resonances are sorted by incrasing size
+        dk= dk[tmp]          # Also the amplitudes are sorted the same way
+        wk= wk[tmp]
+
+        wk = w0 + wk #now wk=Wk
+        index = 1-p
+        # frequencies and amplitudes are stored in the corresponding arrays
+        freq[index,:] = wk   
+        ampl[index,:] = dk
+
+    # The two results are compared to each other: 
+    # Only resonances that appear in both reaults up to en Error of PtError are accepted
+    err = np.zeros(shape=(jmax+1), dtype=float)
+    err[:] = 99999999999.0e0
+    for l in np.arange(0, jmax):
+        for j in np.arange(0, jmax): 
+            #The minimum distance between a resonance in Result 0 to an arbitrary other resonance in Result 1 is calculated
+            if (abs(freq[0,l] - freq[1,j]) < err[l]) :
+                err[l] = abs(freq[0,l] - freq[1,j])
+        # Filtering of resonances:Resonances must fulfill
+        # Error smaller then PtError and its np.real must be between wl and wr
+        # and amplitude greater then MinAmpl
+        if ( (err[l] < PtError) 
+            and (np.real(freq[0,l]) >= wl) and (np.real(freq[0,l]) < wr) 
+            and (np.abs(ampl[0,l]) > MinAmpl) ) :
+                result.append([freq[0,l], ampl[0,l], abs(ampl[0,l]), err[l]])
+    return np.array(result)
+
+
+def hi_base(Frqs, Data, ResoMax=200, Reflection=False, FrqI=None, FrqF=None, FrqMin=None, 
             FrqMax=None, Phase=None,
-            var_trunc=200, 
             plot_flag=False, noline=True, 
             polish=10, MinAmpl=1e-5, PtError=0.1, hi_filter=1e-4, oldflag=False):
     '''
     Frqs: the frequency axis
     Data: the conmplex data to fit
+    ResoMax: Maximun number of resonances to find
     Reflection: if True adjusts the constant from s_ii=\delta_ii-\sum of Lorentzians
     FrqI: the lowest frequency
     FrqF: the highest frequency
@@ -24,7 +157,6 @@ def hi_base(Frqs, Data, Reflection=False, FrqI=None, FrqF=None, FrqMin=None,
     Phase: if reflection an additional phase takes into account that the coupling to the antenna is not constant and it is a function of the frequency
          phi is either a scalar or of length data 
     ################
-    var_trunc: number of points taken from the time signal obbtained by FFT\n
     ------------------
     returns (info, ListOFResonances)
     info is a dictionary that contains:
@@ -65,11 +197,10 @@ def hi_base(Frqs, Data, Reflection=False, FrqI=None, FrqF=None, FrqMin=None,
     # has to be taken into account! This is done by (-1)^k_index
     FTData = np.fft.ifft(DataPart) * (-1)**k_index * len(DataPart)  # To check if this normalization is interesting or useful
     # multiplication of len() to have the same definition of FFT as in IDL
+    FTDataPart = FTData[:ResoMax+1]  # cutoff of the Fourier Tranformed data
     ###################
    
-    data_fft_trunc = FTData[0:var_trunc+1]  #cutoff of fft-Data after trunc datapoints
-    
-    hi_erg = hi_fourier(data_fft_trunc, FrqC, FrqI, FrqF, tau, Stepfrq=dFrq, polish=polish, PtError=PtError, MinAmpl=MinAmpl)  #call hi fourier
+    hi_erg = hi_fourier(FTDataPart, FrqC, FrqI, FrqF, tau, Stepfrq=dFrq, polish=polish, PtError=PtError, MinAmpl=MinAmpl)  #call hi fourier
     if len(hi_erg) == 0:
         """No resonances returned by hi_fourier"""
         return None
@@ -118,7 +249,7 @@ def hi_base(Frqs, Data, Reflection=False, FrqI=None, FrqF=None, FrqMin=None,
         plt.figure('Hi_FFT');plt.clf()
         plt.semilogy(np.abs(FTData)**2,label='FFT_data')
         plt.ylabel('|FFT|$^2$');plt.xlabel('datapoint n')
-        plt.axvline(var_trunc, ls=':', label=str(var_trunc))
+        plt.axvline(ResoMax, ls=':', label=str(ResoMax))
         if not noline:
             Rekonstr+=(slope_re+1j*slope_im)*FrqsPart[Ausschnitt] + const_re+1j*const_im
         if Reflection:
@@ -152,7 +283,6 @@ Created on Thu Mar 31 18:33:24 2016
 
 @author: kuhl
 """
-import scipy.linalg as la
 import matplotlib.pyplot as plt
 from mesopylib.utilities.plot.plot_exp_spectra import plot4x4
 
@@ -265,135 +395,6 @@ def root_polish(cof, uk, jmax, polish):
                   y = cof[i] + y * uk[j]
             uk[j] -= y/(1.0*y1)
     return uk
-
-def HarmInv_Pade( cd, nd, polish=10):
-                #, status_ludc1=None, status_hqr=None, status_ludc2=None):
-    """
-        eq{11} and 
-        c_(n) = Sum(a_k * c_(n+k), k)\n
-        c_(n) = Sum(a_k * c_(n+k), k) for a_k -> cof\n
-        c_n = Sum(d_k * z_k^n, k) to calculate dk	{see eq. 7}
-        --------------------\n
-        Input:
-          cd : data (on time axis)
-          nd : number of points taken into account
-          polish = 10 : int (number of polishing the result)
-        Example: 
-        HarmInv_Pade( data[], 120, polish=10):
-    """
-    #Variables
-    jmax = (nd-2)//2
-    a = np.zeros(shape=(jmax+1,jmax+1), dtype=np.complex128)
-    af = np.zeros(shape=(jmax+1,jmax+1), dtype=np.complex128)
-    b = np.zeros(shape=(jmax+1), dtype=np.complex128)
-    cof = np.zeros(shape=(jmax+2), dtype=np.complex128)
-    dk = np.zeros(shape=(jmax+1), dtype=np.complex128)
-    dcomplex1 = np.complex128(1) # 1+0j
-
-    #Generate eqnarr c_(n) = Sum(a_k * c_(n+k), k)     {see eq. 11}
-    for j in np.arange(0, jmax+1): 
-        a[:,j]=cd[j+1 : j+1+jmax+1]
-    af = a[:,:]
-    b[0:jmax] = cd[0:jmax]
-    cof[1:] = b
-
-    #Solve c_(n) = Sum(a_k * c_(n+k), k) for a_k -> cof 	 {see eq. 11}
-    af,ipiv,status_ludc1 = la.lapack.zgetrf(a)
-    #ipiv is the permutation in the LU decomp. A = ipiv * L * U
-    cof[1:],status_ludsol = la.lapack.zgetrs(af,ipiv,b)
-#    lu_piv = la.lu_factor(a)       # use highlvel functions
-#    cof[1:]=la.lu_solve(lu_piv,b)  # "
-    cof[0] = -1.0e0	#{see eq. 10} a_0 = -1 if we sum k from 0 instead
-
-    #Build Hessenberg-matrix		{see eq. 14}
-    a *= 0
-    a[0, 0:jmax+1] = -cof[jmax-np.arange(jmax+1)]/cof[jmax+1]
-    for j in np.arange(1, jmax+1): 
-        a[j,j-1] = dcomplex1
-    #Calculate eigenvalues of the Hessenberg-matrix
-    uk=la.eigvals(a)
-    status_hqr=0
-    if (status_hqr != 0): 
-        print(('1: la_hqr (<-f08psf): status={0}'.format(status_hqr)))
-    if polish is not None :
-        uk=root_polish(cof, uk, jmax, polish)
-    #Generate eqnarr c_n = Sum(d_k * z_k^n, k) to calculate dk	{see eq. 7}
-    for j in np.arange(0, jmax+1): 
-        a[j,0:jmax+1] = (uk[j])**np.arange(jmax+1) * dcomplex1 #Vandermondsche-matrix
-    af = a[:,:]
-    dk[0:jmax+1] = cd[0:jmax+1]    
-    b = dk
-
-    #Solve eqnarr c_n = Sum(d_k * z_k^n, k) for dk	{see eq. 7}
-    af,ipiv,status_ludc2 = la.lapack.zgetrf(a.T)
-    if (status_ludc2 != 0): 
-        print(('2: la_ludc (<-f07arf): status=', status_ludc2))
-    dk,status_ludsol = la.lapack.zgetrs(af,ipiv,b)
-    return uk, dk
-
-def hi_fourier(cd, w0, wl, wr, tau, polish=10, Stepfrq=None, PtError=0.1, MinAmpl=1e-7):
-    r'''
-    returns an complex np.array 
-    each element contains [complex frequency, complex amplitude, absolute amplitude, err]
-    
-    cd: FFTData which is assumed to be equal to \sum_k (-i*Ak)*e^{i(wk-w0)t} if cd is obtained by Fourier Transformation of Frequency data, data has to be hifted by wo before transforming
-    wl: left border of frequency range, 
-    wr: right border of frequency range, 
-    w0: middle of frequency range, 
-    tau: 2*pi*deltaT where deltaT =1/(w2-w1)
-    is taken from FFT,
-    Stepfrq: distance between two measured frequencies
-    polish: defining how often rootpolish is used in HarmInvPade
-    
-    hi_fourier returns the complex positions wk of the resonances and the amplitudes Ak which contribute to the initial signal cd
-    Only resonances between wl and wr are accepted. 
-    Furthermore only resonaces which shift less then PtError when the initial data cd is shifted by one point are accepted 
-      and the abs-value of the amplitude has to exeed MinAmpl.
-    ''' 
-    #Set Constants
-    ii=np.complex128(1j)
-    nd = len(cd)-2   # nd: Number of Datapoints minus 2
-    result=[]        # Complex array to return result
-
-    jmax = (nd-2)//2  # jmax: (Number of data- 4)/2
-    freq=np.zeros(shape=(2,jmax+1), dtype=complex) #here the frequencies of the resonances will which are obtained by the shifted and unshifted data
-    ampl=np.zeros(shape=(2,jmax+1), dtype=complex) #here the amplitudes if the resonances will be stored which are obtained by the shifted and unshifted data
-
-    # HarmInv-Pade is calculated two times with data shifted by one Datapoint
-    for p in np.arange(0,2):
-        uk,dk=HarmInv_Pade(cd[p:nd+p+1], nd, polish=polish)
-        wk=np.zeros(shape=(len(dk)), dtype=np.complex128) # here the extracted Resonances Wk will be stored
-        wk = (-ii / tau) * np.log(uk)                     # uk was exp(i*tau(Wk-w0)) ->wk is Wk-wo
-        dk = dk * (-ii * Stepfrq / (2 * np.pi))           # ??? Wieso werden die dks noch einmal reskaliert
-        dk = dk/uk**p  # When data has been shifted the Amplitude has to be corrected
-
-        tmp=np.argsort(np.real(wk))  # the resonances are sorted by incrasing size
-        dk= dk[tmp]          # Also the amplitudes are sorted the same way
-        wk= wk[tmp]
-
-        wk = w0 + wk #now wk=Wk
-        index = 1-p
-        # frequencies and amplitudes are stored in the corresponding arrays
-        freq[index,:] = wk   
-        ampl[index,:] = dk
-
-    # The two results are compared to each other: 
-    # Only resonances that appear in both reaults up to en Error of PtError are accepted
-    err = np.zeros(shape=(jmax+1), dtype=float)
-    err[:] = 99999999999.0e0
-    for l in np.arange(0, jmax):
-        for j in np.arange(0, jmax): 
-            #The minimum distance between a resonance in Result 0 to an arbitrary other resonance in Result 1 is calculated
-            if (abs(freq[0,l] - freq[1,j]) < err[l]) :
-                err[l] = abs(freq[0,l] - freq[1,j])
-        # Filtering of resonances:Resonances must fulfill
-        # Error smaller then PtError and its np.real must be between wl and wr
-        # and amplitude greater then MinAmpl
-        if ( (err[l] < PtError) 
-            and (np.real(freq[0,l]) >= wl) and (np.real(freq[0,l]) < wr) 
-            and (np.abs(ampl[0,l]) > MinAmpl) ) :
-                result.append([freq[0,l], ampl[0,l], abs(ampl[0,l]), err[l]])
-    return np.array(result)
     
 def resToData(frq, Res, Ampl=None):
     """
