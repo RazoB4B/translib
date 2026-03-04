@@ -258,7 +258,7 @@ def get_lee_holo(complex_pattern, period, center, angle, nbits):
     return mask
 
 
-def GetExperimentDMD(Diffuser, angle, nfigs, deph=0, NPad=10, clock=True, WinSize=None, Max=None, Min=None):
+def GetExperimentDMD(Diffuser, angle, nfigs, deph=0, NPad=5, clock=True, WinSize=None, Max=None, Min=None):
     """
     Generates a serie of speckle patterns as the once obtained from the experiment
     where only the intensity can be measured and using a turning section

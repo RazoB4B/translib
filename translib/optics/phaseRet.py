@@ -52,7 +52,7 @@ def VortexMask(size, ordmax=1, Sym=True, Max=None, Min=None):
         return Masks
 
 
-def GetFarField(array, Npad=5, WinSize=None):
+def GetFarField(array, Npad=5, WinSize=None, Scale=None):
     """
     Computes the far field propagation of a given array
 
@@ -64,13 +64,16 @@ def GetFarField(array, Npad=5, WinSize=None):
     n = len(array)
     if WinSize is None:
         WinSize = n
+    if Scale is None:
+        Scale = 1
     pad = int((Npad-1)*n)//2
     array = np.pad(array, pad, mode='constant')
     array = np.fft.fftshift(np.fft.fft2(np.fft.ifftshift(array)))
+    array = Resample(array, Scale)
     return CropCenter(array, WinSize)
 
 
-def GetFarField_Torch(array, Npad=5, WinSize=None):
+def GetFarField_Torch(array, Npad=5, WinSize=None, scale=None):
     """
     Computes the far field propagation of a given tensor
 
@@ -82,6 +85,9 @@ def GetFarField_Torch(array, Npad=5, WinSize=None):
     n = array.shape[-1]
     if WinSize is None:
         WinSize = n
+
+    if scale is None:
+        scale = 1
     
     pad = int((Npad - 1) * n)// 2
     # Pad (left, right, top, bottom) — note reversed order in F.pad for 2D
@@ -90,6 +96,10 @@ def GetFarField_Torch(array, Npad=5, WinSize=None):
     shifted_input = torch.fft.fftshift(array_padded, dim=(-2, -1))
     fft_output = torch.fft.fft2(shifted_input)
     shifted_fft = torch.fft.fftshift(fft_output, dim=(-2, -1))
+    
+    grid = Grid(shifted_fft)
+    scaled_grid = grid / scale
+    shifted_fft = Resample_Torch(shifted_fft, scaled_grid)
     return CropCenter_Torch(shifted_fft, WinSize)
 
 
@@ -120,6 +130,63 @@ def CropCenter_Torch(tensor, size):
 
     tensor = tensor[..., center - half:center - half + size, center - half:center - half + size]
     return tensor
+
+
+def Grid(array):
+    device = array.device
+    H, W = array.shape
+    y = torch.linspace(-1, 1, H, device=device)
+    x = torch.linspace(-1, 1, W, device=device)
+    Y, X = torch.meshgrid(y, x, indexing='ij')
+
+    return torch.stack((X, Y), dim=-1)
+
+
+def Resample(U_f, scale):
+    H, W = U_f.shape
+
+    # Build coordinate grid
+    y = np.linspace(-1, 1, H)
+    x = np.linspace(-1, 1, W)
+    Y, X = np.meshgrid(y, x, indexing='ij')
+
+    # Scale coordinates
+    Xs = X / scale
+    Ys = Y / scale
+
+    # Convert normalized [-1,1] → pixel coordinates [0, H-1]
+    Xp = (Xs + 1) * (W - 1) / 2
+    Yp = (Ys + 1) * (H - 1) / 2
+
+    coords = np.vstack([Yp.ravel(), Xp.ravel()])
+
+    # Interpolate real and imaginary separately
+    real_part = map_coordinates(
+        U_f.real, coords, order=1, mode='constant', cval=0
+    ).reshape(H, W)
+
+    imag_part = map_coordinates(
+        U_f.imag, coords, order=1, mode='constant', cval=0
+    ).reshape(H, W)
+
+    return real_part + 1j * imag_part
+
+
+def Resample_Torch(U_f, scaled_grid):
+    U_real = U_f.real.unsqueeze(0).unsqueeze(0)
+    U_imag = U_f.imag.unsqueeze(0).unsqueeze(0)
+
+    sampled_real = torch.nn.functional.grid_sample(
+        U_real, scaled_grid.unsqueeze(0),
+        mode='bilinear',
+        align_corners=True)
+
+    sampled_imag = torch.nn.functional.grid_sample(
+        U_imag, scaled_grid.unsqueeze(0),
+        mode='bilinear',
+        align_corners=True)
+
+    return sampled_real.squeeze() + 1j * sampled_imag.squeeze()
 
 
 def L2_Norm(x, y):
@@ -222,9 +289,20 @@ class SavingBest:
             self.Loss = Loss
             self.Best = Diff
             print(f'Saving best diffuser with loss {self.Loss}')
+
+
+def Norm(Array):
+    return Array/torch.mean(torch.abs(Array))
+    
+
+def GetFourierConstants(alpha, deph=0):
+    Nangle = (2*np.pi)/(alpha)
+    cm1 = np.abs(np.sinc(1/Nangle))/(Nangle-1)*np.exp(-1j*deph)
+    cp1 = np.abs(np.sinc(1/Nangle))/(Nangle-1)*np.exp(1j*deph)
+    return cp1, cm1
             
-            
-def FindDiffuser(Input, deph=0, LR_init=1, NPad=10, TryR=False, InitDiff=None, 
+
+def FindDiffuser(Input, LR_init=1, LR_prop=0.01, deph=0, NPad=5, TryR=False, InitSca=None,  InitDiff=None, 
                  DiamDiff=None, MaxSteps=None, MaxLoss=None):
     device = "cpu"
     EarlyS = EarlyStopping(Patience=100, Mindelta=0)
@@ -232,15 +310,11 @@ def FindDiffuser(Input, deph=0, LR_init=1, NPad=10, TryR=False, InitDiff=None,
     Best = SavingBest()
 
     # Recieving and computing numpy arrays
-    alpha = np.pi
-    Nangle = (2*np.pi)/(alpha)
-    cm1 = np.abs(np.sinc(1/Nangle))/(Nangle-1)*np.exp(-1j*deph)
-    cp1 = np.abs(np.sinc(1/Nangle))/(Nangle-1)*np.exp(1j*deph)
-
+    cp1, cm1 = GetFourierConstants(np.pi, deph)
+    
     a02 = Input[0]
     S0 = Input[1]
     S1 = Input[2]
-
     SizeArray = a02.shape[0]
 
     if MaxLoss is None:
@@ -254,28 +328,27 @@ def FindDiffuser(Input, deph=0, LR_init=1, NPad=10, TryR=False, InitDiff=None,
     else:
         RMax = DiamDiff/SizeArray
 
+    if InitSca is None:
+        InitSca = 1
+
     VMasks = VortexMask(SizeArray, 1, Max=RMax)
 
     #Loading to torch
-    a02_target = torch.from_numpy(a02).to(torch.complex64).to(device)
-    S0_target = torch.from_numpy(S0).to(torch.complex64).to(device)
-    S1_target = torch.from_numpy(S1).to(torch.complex64).to(device)
-
-    a02_target = a02_target/torch.mean(torch.abs(a02_target))
-    S0_target = S0_target/torch.mean(torch.abs(S0_target))
-    S1_target = S1_target/torch.mean(torch.abs(S1_target))
+    a02_target = Norm(torch.from_numpy(a02).to(torch.complex64).to(device))
+    S0_target = Norm(torch.from_numpy(S0).to(torch.complex64).to(device))
+    S1_target = Norm(torch.from_numpy(S1).to(torch.complex64).to(device))
 
     V0 = torch.from_numpy(VMasks[1]).to(torch.complex64).to(device)
     Vp1 = torch.from_numpy(VMasks[2]).to(torch.complex64).to(device)
     Vm1 = torch.from_numpy(VMasks[0]).to(torch.complex64).to(device)
-
+    
+    scale = torch.nn.Parameter(torch.log(torch.tensor([InitSca], device=device)))
     if InitDiff is None:
         param_diff = 2*np.pi*(torch.rand(SizeArray, SizeArray, requires_grad=True) - 0.5)
         param_diff = param_diff.clone().detach().requires_grad_(True)
-        optimizer = torch.optim.Adam([param_diff], lr=LR_init)
     else:
         param_diff = torch.from_numpy(InitDiff).clone().detach().to(torch.float32).to(device).requires_grad_(True)
-        optimizer = torch.optim.Adam([param_diff], lr=LR_init)
+    optimizer = torch.optim.Adam([{'params':param_diff, 'lr':LR_init},{'params':scale, 'lr':LR_init*LR_prop}])
 
     # Optimization
     TotLoss = np.zeros([MaxSteps])
@@ -286,21 +359,15 @@ def FindDiffuser(Input, deph=0, LR_init=1, NPad=10, TryR=False, InitDiff=None,
         optimizer.zero_grad()
 
         diff = torch.exp(1j*param_diff)
+        scale_eff = torch.exp(scale)
 
-        pred_a0 = GetFarField_Torch(diff*V0, NPad)
-        pred_ap1 = GetFarField_Torch(diff*Vp1, NPad)
-        pred_am1 = GetFarField_Torch(diff*Vm1, NPad)
+        pred_a0 = Norm(GetFarField_Torch(diff*V0, NPad, scale=scale_eff))
+        pred_ap1 = cp1*Norm(GetFarField_Torch(diff*Vp1, NPad, scale=scale_eff))
+        pred_am1 = cm1*Norm(GetFarField_Torch(diff*Vm1, NPad, scale=scale_eff))
 
-        pred_a0 = pred_a0/torch.mean(torch.abs(pred_a0))
-        pred_ap1 = pred_ap1*cp1/torch.mean(torch.abs(pred_ap1))
-        pred_am1 = pred_am1*cm1/torch.mean(torch.abs(pred_am1))
-
-        S0_pred = torch.abs(pred_a0)**2 + torch.abs(pred_am1)**2 + torch.abs(pred_ap1)**2
-        S1_pred = pred_a0*pred_am1.conj() + pred_ap1*pred_a0.conj()
-
-        a02_pred = torch.abs(pred_a0)**2/torch.mean(torch.abs(pred_a0)**2)
-        S0_pred = S0_pred/torch.mean(torch.abs(S0_pred))
-        S1_pred = S1_pred/torch.mean(torch.abs(S1_pred))
+        a02_pred = Norm(torch.abs(pred_a0)**2)
+        S0_pred = Norm(torch.abs(pred_a0)**2 + torch.abs(pred_am1)**2 + torch.abs(pred_ap1)**2)
+        S1_pred = Norm(pred_a0*pred_am1.conj() + pred_ap1*pred_a0.conj())
 
         loss_a0 = L2_Norm_Torch(a02_pred, a02_target)
         loss_S0 = L2_Norm_Torch(S0_pred, S0_target)
@@ -318,6 +385,7 @@ def FindDiffuser(Input, deph=0, LR_init=1, NPad=10, TryR=False, InitDiff=None,
         if TryR and (EarlyS.should_stop and loss_total.item()>MaxLoss):
             MaxLoss = Threshold(MaxLoss, loss_total.item())
             Best(param_diff, loss_total.item())
+            print(scale_eff, scale)
             if Best.Loss < MaxLoss:
                 print(f'Best diffuser with loss {Best.Loss} has been previously found')
                 param_diff = Best.Best
@@ -325,9 +393,12 @@ def FindDiffuser(Input, deph=0, LR_init=1, NPad=10, TryR=False, InitDiff=None,
                 EarlyS = EarlyStopping(Patience=100, Mindelta=0)
                 with torch.no_grad():
                     param_diff = 2*np.pi*(torch.rand(SizeArray, SizeArray) - 0.5)
+                    scale = torch.log(torch.tensor([InitSca], device=device))
                 param_diff = param_diff.clone().detach().requires_grad_(True)
-                optimizer = torch.optim.Adam([param_diff], lr=LR_init)
+                scale = scale.clone().detach().requires_grad_(True)
+                optimizer = torch.optim.Adam([{'params':param_diff, 'lr':LR_init},{'params':scale, 'lr':LR_init*LR_prop}])
         if EarlyS.should_stop:
+            print(scale_eff, scale)
             print('Found', loss_total.item())
             TotLoss = TotLoss[:_step+1]
             ElapTime = ElapTime[:_step+1]
