@@ -10,6 +10,7 @@ import torch
 import numpy as np
 import torch.nn.functional as F
 from tqdm import tqdm
+from scipy.ndimage import map_coordinates
 
 
 def VortexMask(size, ordmax=1, Sym=True, Max=None, Min=None):
