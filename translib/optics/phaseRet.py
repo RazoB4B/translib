@@ -437,7 +437,7 @@ def FindBigDiffuser(Input, Div=2, LR_init=1, LR_prop=0.01, deph=0, InitSca=None,
                     DiamDiff=_DiamDiff, MaxSteps=MaxSteps, MaxLoss=MaxLoss, NPad=NPad)
         else:
             print(f'Increasing the size of the system to {len(_a02)}x{len(_a02)} pixels')
-            Diff, Scale, _TotLoss, _ElapTime = FindDiffuser([_a02, _S0, _S1], LR_init/2, LR_prop/10, deph, False, InitSca=Scale,
+            Diff, Scale, _TotLoss, _ElapTime = FindDiffuser([_a02, _S0, _S1], LR_init/2, LR_prop/2, deph, False, InitSca=Scale,
                     InitDiff=Diff, DiamDiff=_DiamDiff, MaxSteps=MaxSteps, MaxLoss=MaxLoss, NPad=NPad)
 
         if i != 0:
