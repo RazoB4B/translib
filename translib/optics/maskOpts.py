@@ -11,6 +11,7 @@ import translib.functions as fun
 from scipy.special import jn
 from numba import njit, prange
 from scipy.optimize import curve_fit
+from scipy.ndimage import map_coordinates
 
 
 def HarmComb(_Imgs, _Npad=1, _axis=0, _Nper=1):
@@ -132,15 +133,27 @@ def ElipticMask(size, order=1, a=1, b=1, Max=None, Min=None):
 
 
 def VortexMask(size, ordmax=1, Sym=True, Max=None, Min=None):
-    """
+    '''
     Generates spiral phase mask exp(i n phi)
 
-    Size: Size of the array side
-    ordmax: Maximum order of the mask
-    Sym: if True, generate mask considering [-n, n]
-    Max: Cuts the values with r>Max
-    Min: Cuts the values with r<Min
-    """
+    Parameters
+    ----------
+    Size : Integer
+           Size of the array side
+    ordmax : Integer
+             Maximum order of the mask
+    Sym : Boolean
+          If True, generate mask considering [-n, n]
+    Max : Float in [0, 2]
+          Cuts the values with r>Max
+    Min : Float in [0, 2]
+          Cuts the values with r<Min
+
+    Returns
+    -------
+    2D float : A stack of 2D arrays with an amplitude step function 
+               defined by Min and Max, and with phases exp(i n phi)
+    '''
     if Max is None:
         Max = 2
     if Min is None:
@@ -333,38 +346,100 @@ def DoubleSectionMask(size, nfigs, angle1, angle2, deph1, deph2, rInt=0.5, clock
         return Masks[0]
     else:
         return Masks
-    
 
-def GetFarField(array, Npad=5, WinSize=None):
-    """
+
+def GetFarField(array, Npad=5, WinSize=None, Scale=None):
+    '''
     Computes the far field propagation of a given array
 
-    array: the array
-    Npad: the size of the padded figure used to compute the Fourier transform
-    WinSize: the size of the final figure
-    conj: if True shifts by one the pixel the final image
-    """
+    Parameters
+    ----------
+    array : 2D complex float array
+            The array to propagate
+    NPad : Float
+           The size of the padded (N*len(array)) figure used to compute 
+           the Fourier transform
+    WinSize : Integer
+              the size of the final figure
+    Scale : Float
+            Scales used to resample the image
+
+    Returns
+    -------
+    2D float : A 2D array given as the Fourier transform of array
+    '''
     n = len(array)
     if WinSize is None:
         WinSize = n
+    if Scale is None:
+        Scale = 1
     pad = int((Npad-1)*n)//2
     array = np.pad(array, pad, mode='constant')
     array = np.fft.fftshift(np.fft.fft2(np.fft.ifftshift(array)))
+    array = Resample(array, Scale)
     return CropCenter(array, WinSize)
 
 
 def CropCenter(array, crop):
-    """
+    '''
     Crops the central section of a given array
 
-    array: the array
-    crop: number of pixels size we will extract
-    conj: if True shifts by one the pixel the final image
-    """
+    Parameters
+    ----------
+    array : 2D complex float array
+            The array to crop
+    crop : Integer
+           Number of pixels size we want extract
+
+    Returns
+    -------
+    2D float array : A 2D array given as the center of the original
+                     one with size crop*crop
+    '''
     x, y = array.shape
     startx = x//2-(crop//2)
     starty = y//2-(crop//2)
     return array[startx:startx+crop, starty:starty+crop]
+
+
+def Resample(Array, Scale):
+    '''
+    Resamples a given 2D array to certain scale
+
+    Parameters
+    ----------
+    Array : 2D complex float array
+            The array to resample
+    Scale : Integer
+            the value to rescale the array
+
+    Returns
+    -------
+    2D float array : A 2D array of the same size of the original but
+                     stretch according to Scale
+    '''
+    H, W = Array.shape
+
+    # Build coordinate grid
+    y = np.linspace(-1, 1, H)
+    x = np.linspace(-1, 1, W)
+    Y, X = np.meshgrid(y, x, indexing='ij')
+
+    # Scale coordinates
+    Xs = X/Scale
+    Ys = Y/Scale
+
+    # Convert normalized [-1,1] → pixel coordinates [0, H-1]
+    Xp = (Xs + 1) * (W - 1) / 2
+    Yp = (Ys + 1) * (H - 1) / 2
+    coords = np.vstack([Yp.ravel(), Xp.ravel()])
+
+    # Interpolate real and imaginary separately
+    real_part = map_coordinates(
+        Array.real, coords, order=1, mode='constant', cval=0).reshape(H, W)
+    imag_part = map_coordinates(
+        Array.imag, coords, order=1, mode='constant', cval=0).reshape(H, W)
+    return real_part + 1j * imag_part
 
 
 def GetFarDiffuser(array, Npad=5, WinSize=None):
