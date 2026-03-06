@@ -534,13 +534,17 @@ def FindDiffuser(Input, LR_init=1, LR_prop=0.01, deph=0, TryR=False, InitSca=Non
                 scale = scale.clone().detach().requires_grad_(True)
                 optimizer = torch.optim.Adam([{'params':param_diff, 'lr':LR_init},{'params':scale, 'lr':LR_init*LR_prop}])
         if EarlyS.should_stop:
-            print(f'Found - Loss={loss_total.item()} - Scale={scale_eff.item()}')
+            try:
+                print(f'Found - Loss={loss_total.item()} - Scale={scale_eff.item()}')
+                Scale = scale_eff.item()
+            except:
+                print(f'Found - Loss={loss_total} - Scale={scale_eff}')
+                Scale = scale_eff
             TotLoss = TotLoss[:_step+1]
             ElapTime = ElapTime[:_step+1]
             break
 
     Diff = param_diff.detach().numpy()
-    Scale = scale_eff.item()
     return Diff, Scale, TotLoss, ElapTime
 
 
