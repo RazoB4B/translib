@@ -9,13 +9,15 @@ import numpy as np
 import scipy.special as sc
 import multiprocessing as mp
 from tqdm import tqdm
+from scipy.special import kn
 from functools import partial
+from scipy.integrate import quad
 
 
 def IntensChaos(_I, _phaseRigidity):
     '''
     Evaluates the statistical distribution of intensities predicted from RMT and
-    considering the phase rigidity as a parameter. See Eq. 16 of PRE 93, 032108 (2016).
+    considering the phase rigidity as a parameter. See Eq. (16) of PRE 93, 032108 (2016).
     
     I: The intensity domain
     phaseRigidity: The phase rigidity parameter
@@ -28,7 +30,7 @@ def IntensChaos(_I, _phaseRigidity):
 def PhaseChaos(_phi, _complexness):
     '''
     Evaluates the statistical distribution of phases predicted from RMT and considering 
-    the complexness as a parameter. See Eq. 4 of PRE 80, 035201(R) (2009).
+    the complexness as a parameter. See Eq. (4) of PRE 80, 035201(R) (2009).
     
     phi: The phase domain
     complexness: The complexness parameter
@@ -40,7 +42,7 @@ def IntensOneFDSpeckle(_I, _Im):
     '''
     Evaluates the statistical distribution of intensities for a fully developed
     speckle pattern predicted considering random phasors with the average intensity 
-    as parameter. See Eq. 3.15 of Goodman, Speckle Phenomena in Optics (2020)
+    as parameter. See Eq. (3.15) of Goodman, Speckle Phenomena in Optics (2020)
     
     phi: The phase domain
     complexness: The complexness parameter
@@ -52,7 +54,7 @@ def Trans1DDisord(_G, _s):
     '''
     Evaluates the statistical distribution of the transmission through a 1D disordered
     system with the adimensional length as parameter. 
-    See Eq. 2 of PRB 88, 205414 (2013)
+    See Eq. (2) of PRB 88, 205414 (2013)
     
     G: The transmission domain
     s: The adimensional length
@@ -68,7 +70,7 @@ def LogTrans1DDisord(_lnG, _s):
     '''
     Evaluates the statistical distribution of the logarithm of the transmission
     through a 1D disordered system with the adimensional length as parameter.
-    See Eq. 2 of PRB 88, 205414 (2013)
+    See Eq. (2) of PRB 88, 205414 (2013)
 
     lnG: The logarithm of the transmission domain
     s: The adimensional length
@@ -141,7 +143,7 @@ def LogTrans1DDisordSym(_lnG, _s, _N=10000001, nproc=25):
 def Inten1DDisordNeupane(_x, _s, _etaL=1e1):
     '''
     Evaluates intensity as function of the position inside a 1D disordered system
-    See Eq. 7 of PRB 92, 014207 (2015)
+    See Eq. (7) of PRB 92, 014207 (2015)
     
     x: The spatial domain
     s: The adimensional length
@@ -195,4 +197,55 @@ def Inten1DDisordMello(_x, _s, _N=100001, nproc=25):
         P = list(tqdm(pool.imap(worker, T1), total=len(T1)))
     
     return np.trapezoid(P1*P, T1, axis=0)
+
 #%%
+def TDRInf1DDisord(_t):
+    '''
+    Evaluates the normalized statistical distribution of the time delay in reflection
+    through a 1D infinite disordered system. The distribution is normalized by gamma=2l/v_g 
+    See Eq. (7) of PRL 82:4220–4223 (1999)
+
+    t: The time delay domain
+    '''
+    return (1/_t**2)*np.exp(-1/_t)
+
+
+def TDTInf1DDisord(_t):
+    '''
+    Evaluates the normalized statistical distribution of the time delay in transmission
+    through a 1D infinite disordered system. The distribution is normalized by gamma=2l/v_g 
+    See Eq. (21) of PRE 64:026606 (2001)
+    
+    t: The time delay domain
+    '''
+    return 4*np.exp(-2/_t)*(kn(0, 2/_t)+kn(1, 2/_t))/_t**3
+
+
+def TDR1DDisord(_t, _a, _s):
+    '''
+    Evaluates the normalized statistical distribution of the time delay in reflection
+    through a 1D finite disordered system. The distribution is normalized by <\tau>
+    See Eq. (3) of Sci.Rep. 10:20816 (2020)
+    
+    t: The time delay domain
+    a: Constant given by 2L/(v_g <\tau>)
+    s: The adimentional length
+    '''
+    return _a/(_s*(2-np.exp(-_a/_s))*_t**2)*np.exp(-_a*np.abs(1/_t-1)/_s)
+
+
+def TDT1DDisord(_t, _a, _s):
+    '''
+    Evaluates the normalized statistical distribution of the time delay in transmission
+    through a 1D finite disordered system. The distribution is normalized by <\tau>
+    See Eq. (21) of PRE 64:026606 (2001) and Eq. (3) of Sci.Rep. 10:20816 (2020)
+    
+    t: The time delay domain
+    a: Constant given by 2L/(v_g <\tau>)
+    s: The adimentional length
+    '''
+    result = np.zeros([len(_t)]) 
+    for i,T in enumerate(_t):
+        integrand = lambda _tr: TDR1DDisord(_tr, _a, _s) * TDR1DDisord(2*T-_tr, _a, _s)
+        result[i], _ = quad(integrand, 0, T)
+    return result/np.trapezoid(result, _t)
