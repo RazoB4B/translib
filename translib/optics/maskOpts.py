@@ -442,20 +442,35 @@ def Resample(Array, Scale):
     return real_part + 1j * imag_part
 
 
-def GetFarDiffuser(array, Npad=5, WinSize=None):
-    """
-    Computes the far diffuser of a given propagated array
+def GetFarDiffuser(array, Npad=5, WinSize=None, Scale=None):
+    '''
+    Computes the far field propagation of a given array
 
-    array: the array
-    Npad: the size of the padded figure used to compute the Fourier transform
-    WinSize: the size of the final figure
-    """
+    Parameters
+    ----------
+    array : 2D complex float array
+            The array to backpropagate
+    NPad : Float
+           The size of the padded (N*len(array)) figure used to compute 
+           the Fourier transform
+    WinSize : Integer
+              the size of the final figure
+    Scale : Float
+            Scales used to resample the image
+
+    Returns
+    -------
+    2D float : A 2D array given as the inverse Fourier transform of array
+    '''
     n = len(array)
     if WinSize is None:
         WinSize = n
+    if Scale is None:
+        Scale = 1
     pad = int((Npad-1)*n)//2
     array = np.pad(array, pad, mode='constant')
     array = np.fft.ifftshift(np.fft.ifft2(np.fft.fftshift(array)))
+    array = Resample(array, Scale)
     return CropCenter(array, WinSize)
 
 

@@ -100,9 +100,28 @@ def Colorize(array, theme="dark", saturation=1.0, beta=1.4, transparent=False,
         return c
     
     
-def Profiles(Data, save=False, FigSize=None):
+def Profiles(Data, save=False, Log=False, Lims=None, CMap=None, FigSize=None):
+    '''
+    Plots the 2D map of an array and the profile at the center of both axis
+    
+    Data: The array to plot
+    save: if True, saves the figure
+    Log: if True, the profile plots are in semi-log
+    Lims: Defines the y limits of the profile plot
+    CMap: Defines the colormap of the 2D array
+    FigSize = Defines the size of the figure
+    '''
     if FigSize is None:
         FigSize = (5,5)
+    if Lims is None:
+        if Log:
+            Min = 1e-2
+        else:
+            Min = 0
+        Max = 1
+    if CMap is None:
+        CMap = ColorMaps('BlackBlue')
+    
     Spec = gridspec.GridSpec(ncols=2, nrows=2, wspace=0.05, hspace=0.05,
                              width_ratios=(1, 0.4), height_ratios=(0.4, 1))
     
@@ -116,7 +135,7 @@ def Profiles(Data, save=False, FigSize=None):
     ax.append(fig.add_subplot(Spec[0]))
     ax.append(fig.add_subplot(Spec[3]))
     
-    ax[0].imshow(np.abs(Data), cmap=ColorMaps('BlackBlue'))
+    ax[0].imshow(np.abs(Data), cmap=CMap)
     ax[0].axhline(len(x_data)//2, color='C1', ls='--', alpha=0.6)
     ax[0].axvline(len(x_data)//2, color='C2', ls='--', alpha=0.6)
     
@@ -125,13 +144,19 @@ def Profiles(Data, save=False, FigSize=None):
     
     ax[0].axis('off')
     ax[1].set_xlim(-len(x_data)//2, len(x_data)//2)
-    ax[1].set_ylim(0,1) 
+    ax[1].set_ylim(Min, Max) 
     ax[1].xaxis.tick_top()
     ax[1].xaxis.set_label_position("top")
     ax[2].set_ylim(-len(y_data)//2, len(y_data)//2)
-    ax[2].set_xlim(0,1)
+    ax[2].set_xlim(Min, Max)
     ax[2].yaxis.tick_right()
     ax[2].yaxis.set_label_position("right")
-    if save==True:
+    if Log:
+        ax[1].set_yscale('log')
+        ax[1].set_ylim(Min, Max) 
+        ax[2].set_xscale('log')
+        ax[2].set_xlim(Min, Max)
+        
+    if save:
         plt.savefig('Fig.svg', bbox_inches='tight', pad_inches=0.01)
     plt.show()
