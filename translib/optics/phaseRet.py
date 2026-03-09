@@ -422,13 +422,27 @@ class SavingBest:
         self.Best = None
         self.Loss = None
         self.Scale = None
+        self.Times = None
 
-    def __call__(self, Diff, Loss, Scale):
-        if ((self.Loss is None) or (Loss<self.Loss)):
+    def __call__(self, Diff, Loss, Times, Scale):
+        if ((self.Loss is None) or (Loss[-1]<self.Loss[-1])):
             self.Loss = Loss
             self.Best = Diff
             self.Scale = Scale
-            print(f'Saving best diffuser with loss {self.Loss} and scale {self.Scale}')
+            self.Times = Times
+            print(f'Saving best diffuser with loss {self.Loss[-1]} and scale {self.Scale}')
+
+
+def Start(MaxSteps, pbar=None):
+    if pbar is not None:
+        pbar.close()
+    TotLoss = np.zeros([MaxSteps])
+    ElapTime = np.zeros([MaxSteps])
+    timei = time.time()
+    _step = 0
+    pbar = tqdm(total=MaxSteps)
+
+    return TotLoss, ElapTime, timei, _step, pbar
 
 
 def FindDiffuser(Input, LR_init=1, LR_prop=0.01, deph=0, TryR=False, InitSca=None,  InitDiff=None, 
@@ -453,7 +467,7 @@ def FindDiffuser(Input, LR_init=1, LR_prop=0.01, deph=0, TryR=False, InitSca=Non
         MaxLoss = 0.3
 
     if MaxSteps is None:
-        MaxSteps = int(1e5)
+        MaxSteps = int(1e4)
         
     if DiffSize is None:
         DiffSize = SizeArray
@@ -484,11 +498,8 @@ def FindDiffuser(Input, LR_init=1, LR_prop=0.01, deph=0, TryR=False, InitSca=Non
     optimizer = torch.optim.Adam([{'params':param_diff, 'lr':LR_init},{'params':scale, 'lr':LR_init*LR_prop}])
 
     # Optimization
-    TotLoss = np.zeros([MaxSteps])
-    ElapTime = np.zeros([MaxSteps])
-
-    timei = time.time()
-    for _step in tqdm(range(MaxSteps)):
+    TotLoss, ElapTime, timei, _step, pbar = Start(MaxSteps, pbar=None)
+    while _step < MaxSteps:
         optimizer.zero_grad()
 
         diff = torch.exp(1j*param_diff)
@@ -513,16 +524,19 @@ def FindDiffuser(Input, LR_init=1, LR_prop=0.01, deph=0, TryR=False, InitSca=Non
 
         TotLoss[_step] = loss_total.item()
         ElapTime[_step] = time.time() - timei
+        _step += 1
+        pbar.update(1)
 
         EarlyS(loss_total.item())
         if TryR and (EarlyS.should_stop and loss_total.item()>MaxLoss):
             MaxLoss = Threshold(MaxLoss, loss_total.item())
-            Best(param_diff, loss_total.item(), scale_eff.item())
-            if Best.Loss < MaxLoss:
-                print(f'Best diffuser with loss {Best.Loss} has been previously found')
+            Best(param_diff, TotLoss[:_step], ElapTime[:_step], scale_eff.item())
+            if Best.Loss[-1] < MaxLoss:
+                print(f'Best diffuser with loss {Best.Loss[-1]} has been previously found')
                 param_diff = Best.Best
                 scale_eff = Best.Scale
-                loss_total = Best.Loss
+                TotLoss = Best.Loss
+                ElapTime = Best.Times
             else:
                 EarlyS = EarlyStopping(Patience=100, Mindelta=0)
                 with torch.no_grad():
@@ -531,6 +545,7 @@ def FindDiffuser(Input, LR_init=1, LR_prop=0.01, deph=0, TryR=False, InitSca=Non
                 param_diff = param_diff.clone().detach().requires_grad_(True)
                 scale = scale.clone().detach().requires_grad_(True)
                 optimizer = torch.optim.Adam([{'params':param_diff, 'lr':LR_init},{'params':scale, 'lr':LR_init*LR_prop}])
+                TotLoss, ElapTime, timei, _step, pbar = Start(MaxSteps, pbar=pbar)
         if EarlyS.should_stop:
             try:
                 print(f'Found - Loss={loss_total.item()} - Scale={scale_eff.item()}')
@@ -538,8 +553,8 @@ def FindDiffuser(Input, LR_init=1, LR_prop=0.01, deph=0, TryR=False, InitSca=Non
             except:
                 print(f'Found - Loss={loss_total} - Scale={scale_eff}')
                 Scale = scale_eff
-            TotLoss = TotLoss[:_step+1]
-            ElapTime = ElapTime[:_step+1]
+            TotLoss = TotLoss[:_step]
+            ElapTime = ElapTime[:_step]
             break
 
     Diff = param_diff.detach().numpy()
