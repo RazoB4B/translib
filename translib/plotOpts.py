@@ -11,6 +11,7 @@ import seaborn as sns
 import matplotlib.pyplot as plt
 from matplotlib import gridspec
 from colorsys import hls_to_rgb
+from matplotlib.colors import LogNorm
 from matplotlib.colors import LinearSegmentedColormap
 
 
@@ -134,15 +135,22 @@ def Profiles(Data, save=False, Log=False, Lims=None, CMap=None, FigSize=None):
     ax.append(fig.add_subplot(Spec[2]))
     ax.append(fig.add_subplot(Spec[0]))
     ax.append(fig.add_subplot(Spec[3]))
+    ax.append(fig.add_subplot(Spec[1]))
     
-    ax[0].imshow(np.abs(Data), cmap=CMap)
+    ax[0].imshow(np.abs(Data), cmap=CMap, origin='lower')
     ax[0].axhline(len(x_data)//2, color='C1', ls='--', alpha=0.6)
     ax[0].axvline(len(x_data)//2, color='C2', ls='--', alpha=0.6)
+    
+    if Log:
+        ax[3].imshow(np.abs(Data), cmap=CMap, origin='lower', norm=LogNorm(vmin=Min, vmax=Max))
+    else:
+        ax[3].imshow(np.log(np.abs(Data)), cmap=CMap, origin='lower')
     
     ax[1].plot(np.arange(len(x_data))-len(x_data)//2, np.abs(x_data), color='C1')
     ax[2].plot(np.abs(y_data), np.arange(len(y_data))-len(y_data)//2, color='C2')
     
     ax[0].axis('off')
+    ax[3].axis('off')
     ax[1].set_xlim(-len(x_data)//2, len(x_data)//2)
     ax[1].set_ylim(Min, Max) 
     ax[1].xaxis.tick_top()

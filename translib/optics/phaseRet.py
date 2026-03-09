@@ -432,9 +432,9 @@ class SavingBest:
 
 
 def FindDiffuser(Input, LR_init=1, LR_prop=0.01, deph=0, TryR=False, InitSca=None,  InitDiff=None, 
-                 DiamDiff=None, MaxSteps=None, MaxLoss=None, NPad=None):
+                 DiffSize=None, MaxSteps=None, MaxLoss=None, NPad=None):
     '''
-    DiamDiff: Diffuser diameter
+    DiffSize: Diffuser size
     '''
     device = "cpu"
     EarlyS = EarlyStopping(Patience=100, Mindelta=0)
@@ -455,10 +455,8 @@ def FindDiffuser(Input, LR_init=1, LR_prop=0.01, deph=0, TryR=False, InitSca=Non
     if MaxSteps is None:
         MaxSteps = int(1e5)
         
-    if DiamDiff is None:
-        RMax = 1 
-    else:
-        RMax = DiamDiff/SizeArray
+    if DiffSize is None:
+        DiffSize = SizeArray
 
     if InitSca is None:
         InitSca = 1
@@ -466,7 +464,7 @@ def FindDiffuser(Input, LR_init=1, LR_prop=0.01, deph=0, TryR=False, InitSca=Non
     if NPad is None:
         NPad = 10
 
-    VMasks = VortexMask(SizeArray, 1, Max=RMax)
+    VMasks = VortexMask(DiffSize, 1, Max=1)
 
     #Loading to torch
     a02_target = Norm(torch.from_numpy(a02).to(torch.complex64).to(device))
@@ -479,7 +477,7 @@ def FindDiffuser(Input, LR_init=1, LR_prop=0.01, deph=0, TryR=False, InitSca=Non
     
     scale = torch.nn.Parameter(torch.log(torch.tensor([InitSca], device=device)))
     if InitDiff is None:
-        param_diff = 2*np.pi*(torch.rand(SizeArray, SizeArray, requires_grad=True) - 0.5)
+        param_diff = 2*np.pi*(torch.rand(DiffSize, DiffSize, requires_grad=True) - 0.5)
         param_diff = param_diff.clone().detach().requires_grad_(True)
     else:
         param_diff = torch.from_numpy(InitDiff).clone().detach().to(torch.float32).to(device).requires_grad_(True)
@@ -496,9 +494,9 @@ def FindDiffuser(Input, LR_init=1, LR_prop=0.01, deph=0, TryR=False, InitSca=Non
         diff = torch.exp(1j*param_diff)
         scale_eff = torch.exp(scale)
 
-        pred_a0 = Norm(GetFarField_Torch(diff*V0, NPad, Scale=scale_eff))
-        pred_ap1 = cp1*Norm(GetFarField_Torch(diff*Vp1, NPad, Scale=scale_eff))
-        pred_am1 = cm1*Norm(GetFarField_Torch(diff*Vm1, NPad, Scale=scale_eff))
+        pred_a0 = Norm(GetFarField_Torch(diff*V0, NPad, WinSize=SizeArray, Scale=scale_eff))
+        pred_ap1 = cp1*Norm(GetFarField_Torch(diff*Vp1, NPad, WinSize=SizeArray, Scale=scale_eff))
+        pred_am1 = cm1*Norm(GetFarField_Torch(diff*Vm1, NPad, WinSize=SizeArray, Scale=scale_eff))
 
         a02_pred = Norm(torch.abs(pred_a0)**2)
         S0_pred = Norm(torch.abs(pred_a0)**2 + torch.abs(pred_am1)**2 + torch.abs(pred_ap1)**2)
@@ -528,7 +526,7 @@ def FindDiffuser(Input, LR_init=1, LR_prop=0.01, deph=0, TryR=False, InitSca=Non
             else:
                 EarlyS = EarlyStopping(Patience=100, Mindelta=0)
                 with torch.no_grad():
-                    param_diff = 2*np.pi*(torch.rand(SizeArray, SizeArray) - 0.5)
+                    param_diff = 2*np.pi*(torch.rand(DiffSize, DiffSize) - 0.5)
                     scale = torch.log(torch.tensor([InitSca], device=device))
                 param_diff = param_diff.clone().detach().requires_grad_(True)
                 scale = scale.clone().detach().requires_grad_(True)
@@ -548,30 +546,31 @@ def FindDiffuser(Input, LR_init=1, LR_prop=0.01, deph=0, TryR=False, InitSca=Non
     return Diff, Scale, TotLoss, ElapTime
 
 
-def FindBigDiffuser(Input, Div=2, LR_init=1, LR_prop=0.01, deph=0, InitSca=None, DiamDiff=None, MaxSteps=None, MaxLoss=None, NPad=None):
+def FindBigDiffuser(Input, Div=2, LR_init=1, LR_prop=0.01, deph=0, InitSca=None,
+                    DiffSize=None, MaxSteps=None, MaxLoss=None, NPad=None):
     a02= Input[0]
     S0 = Input[1]
     S1 = Input[2]
     SizeArray = a02.shape[0]
     
-    if DiamDiff is None:
-        DiamDiff = SizeArray
+    if DiffSize is None:
+        DiffSize = SizeArray
 
     for i in np.flip(range(Div+1)):
         _a02 = CropCenter(a02, SizeArray//(2**i))
         _S0 = CropCenter(S0, SizeArray//(2**i))
         _S1 = CropCenter(S1, SizeArray//(2**i))
         
-        _DiamDiff = DiamDiff//(2**i)
+        _DiffSize = DiffSize//(2**i)
 
         if i == Div:
             print(f'Starting with a size of {len(_a02)}x{len(_a02)} pixels')
             Diff, Scale, _TotLoss, _ElapTime = FindDiffuser([_a02, _S0, _S1], LR_init, LR_prop, deph, True, InitSca=InitSca, 
-                    DiamDiff=_DiamDiff, MaxSteps=MaxSteps, MaxLoss=MaxLoss, NPad=NPad)
+                    DiffSize=_DiffSize, MaxSteps=MaxSteps, MaxLoss=MaxLoss, NPad=NPad)
         else:
             print(f'Increasing the size of the system to {len(_a02)}x{len(_a02)} pixels')
             Diff, Scale, _TotLoss, _ElapTime = FindDiffuser([_a02, _S0, _S1], LR_init/2, LR_prop, deph, False, InitSca=Scale,
-                    InitDiff=Diff, DiamDiff=_DiamDiff, MaxSteps=MaxSteps, MaxLoss=MaxLoss, NPad=NPad)
+                    InitDiff=Diff, DiffSize=_DiffSize, MaxSteps=MaxSteps, MaxLoss=MaxLoss, NPad=NPad)
 
         if i != 0:
             Diff = np.repeat(np.repeat(Diff, 2, axis=0), 2, axis=1)
