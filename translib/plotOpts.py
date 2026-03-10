@@ -127,8 +127,12 @@ def Profiles(Data, save=False, Log=False, Lims=None, CMap=None, FigSize=None):
                              width_ratios=(1, 0.4), height_ratios=(0.4, 1))
     
     Data = Data/np.max(np.abs(Data))
-    x_data = Data[len(Data)//2, :]
-    y_data = Data[:, len(Data)//2]
+    if len(Data)//2==0:
+        x_data = np.mean(Data[len(Data)//2:len(Data)//2+1, :])
+        y_data = np.mean(Data[:, len(Data)//2:len(Data)//2+1])
+    else:
+        x_data = Data[len(Data)//2, :]
+        y_data = Data[:, len(Data)//2]
     
     fig = plt.figure(figsize=FigSize)
     ax = []
@@ -138,8 +142,8 @@ def Profiles(Data, save=False, Log=False, Lims=None, CMap=None, FigSize=None):
     ax.append(fig.add_subplot(Spec[1]))
     
     ax[0].imshow(np.abs(Data), cmap=CMap, origin='lower')
-    ax[0].axhline(len(x_data)//2, color='C1', ls='--', alpha=0.6)
-    ax[0].axvline(len(x_data)//2, color='C2', ls='--', alpha=0.6)
+    ax[0].axhline(len(x_data)//2+0.5, color='C1', ls='--', alpha=0.6)
+    ax[0].axvline(len(x_data)//2+0.5, color='C2', ls='--', alpha=0.6)
     
     if Log:
         ax[3].imshow(np.abs(Data), cmap=CMap, origin='lower', norm=LogNorm(vmin=Min, vmax=Max))
