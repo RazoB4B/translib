@@ -11,72 +11,74 @@ import numpy as np
 import scipy.linalg as la
 
 
-def HarmInvPade(Data, nd, polish=10):
+def rootPolish(a, uk, polish):
     '''
-    Data: The data to fit
+    A root polishing routine. It refines approximate roots of a polynomial using 
+    Newton's method.
+    
+    a: Coefficients a_k obtained from the solution of c_j=Sum(a_k*c_{j+k}, k)
+    uk: Approximated roots of the Hessenberg matrix
+    polish: Number of iterations to polish
+    
+    Returns the list of polish eigenvalues uk
     '''
-    """
-        eq{11} and 
-        c_(n) = Sum(a_k * c_(n+k), k)\n
-        c_(n) = Sum(a_k * c_(n+k), k) for a_k -> cof\n
-        c_n = Sum(d_k * z_k^n, k) to calculate dk	{see eq. 7}
-        --------------------\n
-        Input:
-          cd : data (on time axis)
-          nd : number of points taken into account
-          polish = 10 : int (number of polishing the result)
-        Example: 
-        HarmInv_Pade( data[], 120, polish=10):
-    """
-    #Variables
-    jmax = (nd-2)//2
-    a = np.zeros(shape=(jmax+1,jmax+1), dtype=np.complex128)
-    af = np.zeros(shape=(jmax+1,jmax+1), dtype=np.complex128)
-    b = np.zeros(shape=(jmax+1), dtype=np.complex128)
-    cof = np.zeros(shape=(jmax+2), dtype=np.complex128)
-    dk = np.zeros(shape=(jmax+1), dtype=np.complex128)
-    dcomplex1 = np.complex128(1) # 1+0j
+    jmax = len(a) - 2
+    for _ in range(polish+1):
+        for j in range(jmax+1):
+            y1 = a[jmax+1]
+            y  = a[jmax] + y1 * uk[j]
+            for i in range(jmax-1, -1, -1):
+                  y1 = y + y1 * uk[j]
+                  y = a[i] + y * uk[j]
+            uk[j] -= y/(1.0*y1)         # Newton's method to improve the estimation
+    return uk
 
-    #Generate eqnarr c_(n) = Sum(a_k * c_(n+k), k)     {see eq. 11}
-    for j in np.arange(0, jmax+1): 
-        a[:,j]=Data[j+1 : j+1+jmax+1]
-    af = a[:,:]
-    b[0:jmax] = Data[0:jmax]
-    cof[1:] = b
 
-    #Solve c_(n) = Sum(a_k * c_(n+k), k) for a_k -> cof 	 {see eq. 11}
-    af,ipiv,status_ludc1 = la.lapack.zgetrf(a)
-    #ipiv is the permutation in the LU decomp. A = ipiv * L * U
-    cof[1:],status_ludsol = la.lapack.zgetrs(af,ipiv,b)
-#    lu_piv = la.lu_factor(a)       # use highlvel functions
-#    cof[1:]=la.lu_solve(lu_piv,b)  # "
-    cof[0] = -1.0e0	#{see eq. 10} a_0 = -1 if we sum k from 0 instead
-
-    #Build Hessenberg-matrix		{see eq. 14}
-    a *= 0
-    a[0, 0:jmax+1] = -cof[jmax-np.arange(jmax+1)]/cof[jmax+1]
-    for j in np.arange(1, jmax+1): 
-        a[j,j-1] = dcomplex1
-    #Calculate eigenvalues of the Hessenberg-matrix
-    uk=la.eigvals(a)
-    status_hqr=0
-    if (status_hqr != 0): 
-        print(('1: la_hqr (<-f08psf): status={0}'.format(status_hqr)))
-    if polish is not None :
-        uk=root_polish(cof, uk, jmax, polish)
-    #Generate eqnarr c_n = Sum(d_k * z_k^n, k) to calculate dk	{see eq. 7}
-    for j in np.arange(0, jmax+1): 
-        a[j,0:jmax+1] = (uk[j])**np.arange(jmax+1) * dcomplex1 #Vandermondsche-matrix
-    af = a[:,:]
-    dk[0:jmax+1] = Data[0:jmax+1]    
-    b = dk
-
-    #Solve eqnarr c_n = Sum(d_k * z_k^n, k) for dk	{see eq. 7}
-    af,ipiv,status_ludc2 = la.lapack.zgetrf(a.T)
-    if (status_ludc2 != 0): 
-        print(('2: la_ludc (<-f07arf): status=', status_ludc2))
-    dk,status_ludsol = la.lapack.zgetrs(af,ipiv,b)
+def HarmInvPade(FFTData, polish=10):
+    '''
+    Given the Fourier tranform of the spectrum, computes the complex resonant 
+    frequencies, as well as the complex resonant amplitudes of the signal.
+    
+    FFTData: The data to fit (on the time domain)
+    polish: Number of iterations to polish the result
+    
+    Returns the eigenfrequencies uk and the eigenamplitudes dk
+    See Razo-Lopez, et. al., Optical Material Express 14, 3 (2024) - Eqs. (5) to (11)
+    '''
+    N = len(FFTData) - 1       # Number of point to take into account
+    jmax = (N-2)//2
+    
+    # Generate the matrix in Eq. (8) - c_j = Sum(a_k * c_{j+k}, k)
+    ac = np.zeros([jmax+1, jmax+1], dtype='complex')
+    c = np.zeros([jmax+1], dtype='complex')
+    a = np.zeros([jmax+2], dtype='complex')
+    for j in range(jmax+1):
+        ac[:, j] = FFTData[j+1 : j+1 + jmax+1]   # ac = a_k c_{j+k} 
+    c[:jmax] = FFTData[:jmax]                    # c_{j}
+    
+    # Finding the coefficiens a_k 
+    lu, piv = la.lu_factor(ac)
+    a[1:] = la.lu_solve((lu, piv), c)
+    a[0] = -1                                    # See equation (10)
+    
+    # Build Hessenberg-matrix in Eq. (11)
+    A = np.diag(np.ones([jmax])+np.zeros([jmax])*1j, -1)
+    A[0, :jmax+1] = -np.flip(a[:jmax+1])/a[jmax+1]
+    
+    # Calculate and polish the eigenvalues of the Hessenberg-matrix
+    uk = la.eigvals(A)
+    uk = rootPolish(a, uk, polish)
+    
+    # Generate the matrix in Eq. (6) - c_j = Sum(A_k * z_k^j, k)
+    Az = np.vander(uk, jmax+1, increasing=True).T
+    # Az = A_k * z_k^j (This is the transverse of the Vandermonde matrix)
+    d = FFTData[:jmax+1]         # c_{j}
+    
+    # Finding the coefficiens A_k
+    lu, piv = la.lu_factor(Az)
+    dk = la.lu_solve((lu, piv), d)
     return uk, dk
+
 
 def hi_fourier(cd, w0, wl, wr, tau, polish=10, Stepfrq=None, PtError=0.1, MinAmpl=1e-7):
     r'''
@@ -110,7 +112,7 @@ def hi_fourier(cd, w0, wl, wr, tau, polish=10, Stepfrq=None, PtError=0.1, MinAmp
         uk,dk=HarmInvPade(cd[p:nd+p+1], nd, polish=polish)
         wk=np.zeros(shape=(len(dk)), dtype=np.complex128) # here the extracted Resonances Wk will be stored
         wk = (-1j / tau) * np.log(uk)                     # uk was exp(i*tau(Wk-w0)) ->wk is Wk-wo
-        dk = dk * (-1J * Stepfrq / (2 * np.pi))           # ??? Wieso werden die dks noch einmal reskaliert
+        dk = dk * (-1j * Stepfrq / (2 * np.pi))           # ??? Wieso werden die dks noch einmal reskaliert
         dk = dk/uk**p  # When data has been shifted the Amplitude has to be corrected
 
         tmp=np.argsort(np.real(wk))  # the resonances are sorted by incrasing size
@@ -285,116 +287,6 @@ Created on Thu Mar 31 18:33:24 2016
 """
 import matplotlib.pyplot as plt
 from mesopylib.utilities.plot.plot_exp_spectra import plot4x4
-
-def extBest(erg31, deltaval=0, RekDet=None, windows=None):
-    """
-    extract the best resonances from different Hi's
-    """
-    #;@RekDet funktioniert noch nicht
-    if windows is None:
-        #if keyword window is not set, take all windows of erg31
-        #extract from erg31
-        windows = np.arange(0,len(erg31[:,0,0])) 
-    numwin = len(windows)
-    nvar= len(erg31[0,:,0]) #extracts the number of variations per window
-    #initialize GRes and Ampl
-    GesRes=[]
-    Ampl = []
-
-    valmin = np.float(np.real(erg31[windows[0],0,4]))/1e9
-    #valmin is set on valmin value of first window
-    for k in np.arange(0, numwin):
-        i=windows[k]
-        BestError=10000000
-        valmax = np.float(np.real(erg31[i,0,5]))
-        #;@kann man viel einfacher mit min statt schleife machen
-        BRes=None
-        BAmpl=None
-        for j in np.arange(0, nvar):
-            if (np.real(erg31[i,j,1]) < BestError) :
-                BestError = np.real(erg31[i,j,1])
-                n_res=np.int(np.real(erg31[i,j,0]))
-                BRes = erg31[i,j,8:8+n_res]
-                BAmpl =  erg31[i,j,8+n_res: 8+2*n_res]
-        # Find appropriate valmax such that none of the best resonances is near the valmax-border by increasing valmax while it is not the case
-        if BRes is not None:
-            dummy=np.where((np.real(BRes) >= (valmax-deltaval)) & (np.real(BRes) <= (valmax+deltaval)))[0]
-            count = len(dummy)
-            while (count != 0):
-                valmax += deltaval/4.
-                dummy=np.where((np.real(BRes) >= valmax-deltaval) & (np.real(BRes) <= valmax+deltaval))[0]
-                count = len(dummy)
-            #only resonances with real part between valmin and valmax are accepted
-            pos  = np.where((np.real(BRes) >= valmin) & (np.real(BRes) <= valmax))[0]
-            count = len(pos)
-            #if valid resonances are found, attach them
-            if (count > 0):
-                GesRes=np.append(GesRes,BRes[pos])
-                Ampl=np.append(Ampl,BAmpl[pos])
-            #set next valmin at current valmax position
-        valmin=valmax
-    return GesRes,Ampl
-
-def get_HiBorders(frq, numWin=1, deltaFft=None, FirstBorder=True, LastBorder=True):
-    """
-    determines borders for the harmonic inversion
-    input:
-        frq in GHz
-        numWin : number of windows to create
-        deltaFft : overlap of the FFT Windows
-        FirstBorder : first Window starts at first element (default=True)
-        LastBorder : last Window ends at last element (default=True)
-    returns:
-        [fftRange, hi_range]
-        fftRange are the frequency ranges used for the FFT for the individual windows
-        hi_range are the frequency ranges returning the resonance frequencies for the individual windows
-        typically fftRange is larger then hi_range to reduce border effects 
-        (in the first and the last window the begining/end of the windows are the same respectively)
-    """
-    frqRange = frq.ptp() # frequency width of frq array
-    nFrqRange = len(frq)  # number of datapoints
-    nuToN = np.float(nFrqRange)/frqRange  # Factor which transfers frequency values into the corresponding number of datapoints
-    deltaVal= (frqRange - 2.* deltaFft)/np.float(numWin) # calculate width of Val-Window
-    nDeltaVal= np.floor(deltaVal*nuToN) # corresponding widths in datapoints
-    nDeltaFft= np.floor(deltaFft*nuToN)
-
-    #initialize empty arrays
-    valRange = np.zeros(shape=(numWin,2),dtype=int)#float)
-    fftRange = np.zeros(shape=(numWin,2),dtype=int)#float)
-    # fill them
-    valRange[:,0] = np.rint(nDeltaFft + nDeltaVal*np.arange(0,numWin))
-    valRange[:,1] = np.rint(nDeltaFft + nDeltaVal*(np.arange(0,numWin)+1))
-    fftRange[:,0] = valRange[:,0] - nDeltaFft
-    fftRange[:,1] = valRange[:,1] + nDeltaFft    
-    
-    # set evaluation for the first and last windows to the starting end endpoint
-    if FirstBorder:
-        valRange[0,0] = 0
-        fftRange[0,0] = 0
-    if LastBorder:
-        valRange[-1,1] = nFrqRange-1
-        fftRange[-1,1] = nFrqRange-1
-    return fftRange, valRange
-
-def harmonic_inversion(data, frq, numWin=1, trunc=100, reflexion=True, NoFFT=False, All=True):
-    """
-    """
-    k=len(data[0, :, 0, 0])
-    l=len(data[0, 0, :, 0])
-    m=len(data[0, 0, 0, :])
-    
-
-def root_polish(cof, uk, jmax, polish):
-# in polish is stored the number of cycles
-    for iter in np.arange(0,np.floor(polish)+1):
-        for j in np.arange(0,jmax+1):
-            y1 = cof[jmax+1]
-            y  = cof[jmax] + y1 * uk[j]
-            for i in np.arange(jmax-1,-1,-1):
-                  y1 = y + y1 * uk[j]
-                  y = cof[i] + y * uk[j]
-            uk[j] -= y/(1.0*y1)
-    return uk
     
 def resToData(frq, Res, Ampl=None):
     """
@@ -410,84 +302,3 @@ def resToData(frq, Res, Ampl=None):
         for i in np.arange(0, len(Res)) :
             result += Ampl[i]/(frq - Res[i])
     return result
-    
-def hi_border( data, frq,  fftmin=0, fftmax=0, valmin=None, valmax=None, 
-    hi_filter=0, var_fftmin=None, var_fftmax=None, var_trunc=None, PtError=0.01, 
-    MinAmpl=1e-7, polish=10, noline=None, plot_flag=False):
-    """
-    returns all information from all reconstructions
-    calls hi_base(...) with different values for:
-        fftrange given by (var_fftmin,var_fftmax)
-        truncation given by var_trunc
-    """
-    #initialize unset parameters
-    if var_trunc is None:
-        var_trunc = np.arange(160,241, dtype=int)
-
-    #determine size of erg array
-    mtrunc = max(var_trunc)*2+8 # eigenfrequency amplitude + info
-    nvar= len(var_fftmin)*len(var_fftmax)*len(var_trunc)
-    erg = np.zeros(shape=(nvar, mtrunc), dtype=complex)
-
-    #extract frequency information
-    stepfrq=frq.ptp()/frq.size
-    #Start to vary fftborderies and trunc
-    varcount=0 #Counter that determines the psoition in the erg array
-    #import pdb;pdb.set_trace()
-    for i in np.arange(0, len(var_fftmin)):
-        #print(('Outer loop i: {}'.format(i)))
-        for j in np.arange(0, len(var_fftmax)):
-            #print('  Inner Loop j: {}'.format(j))
-            for k in np.arange(0, len(var_trunc)):
-                w1 = fftmin+var_fftmin[i]  #w1/w2/w0 are the left/right border 
-                w2 = fftmax+var_fftmax[j]  #respectively middle of the cut out frequency array
-                hi_erg_tmp=hi_base(frq, data, w1, w2, var_trunc[k]+1, valmin, valmax, stepfrq=stepfrq, PtError=PtError, 
-                        MinAmpl=MinAmpl, polish=polish, noline=noline, plot_flag=plot_flag, oldflag=True)
-                if hi_erg_tmp is None or len(hi_erg_tmp)> mtrunc:
-                    print('hi_base return wrong array or None: {}'.format(hi_erg_tmp)) 
-                    #import pdb;pdb.set_trace()
-                else:
-                    erg[varcount,0:len(hi_erg_tmp)]=hi_erg_tmp
-                
-                varcount+=1
-    return erg 
-    #erg is returned
-
-def hi(data, frq, numWin=1, deltaFft=None, var_fftmin=None, var_fftmax=None, 
-       var_trunc=None, hi_filter=None,
-       PtError=0.01, MinAmpl=1e-7, polish=10, noline=None, plot_flag=False):
-    """
-    input:
-      data : complex spectra
-      frq : corresponding frequency axis
-      numWin : in how many windows the data array should be seperated
-      var_fftmin:
-      var_fftmax:
-      var_trunc: truncation array in number of points usd from the FFT data
-      hi_filter:
-      PtError: (default=0.01)
-      MinAmpl: (default=1e-7)
-      polish:  (default==10)
-      noline: 
-      
-    returns:
-      an np.array that includes the returned 
-      [complex resonance frq, complex amplitude, errorinfos]
-    """
-    erg = []
-    
-    [fftRange,valRange]=get_HiBorders(frq, numWin, deltaFft)
-    #the borders of the frq windows are saved in fftRange/valRange
-    valmin=frq[valRange[0,0]]
-
-    #split Data into windows indicated by valRange and fftRange
-    for q in np.arange(0, numWin):
-        valmax=frq[valRange[q,1]]
-        #call hi_border
-        hi_erg=hi_border(data, frq, frq[fftRange[q,0]], frq[fftRange[q,1]], valmin=valmin, valmax=valmax, PtError=PtError, MinAmpl=MinAmpl,
-	            hi_filter=hi_filter, var_fftmin=var_fftmin, var_fftmax=var_fftmax, var_trunc=var_trunc, polish=polish, noline=noline, plot_flag=plot_flag)
-
-        valmin=valmax #set next valmin at the adapted valmax value
-        erg.append(hi_erg)
-        #erg=[erg, hi_erg] #attatch hi_erg to erg
-    return np.array(erg)
