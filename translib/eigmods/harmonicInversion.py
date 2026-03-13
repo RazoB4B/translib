@@ -112,7 +112,7 @@ def HarInvFourier(FFTData, FrqI, FrqF, dFrq, polish=10, PtError=0.1, MinAmpl=1e-
     ampl = np.zeros([2, jmax+1], dtype='complex')
     for i in range(2):
         uk, dk, = HarmInvPade(FFTData[i:N+i], polish)   # Croping the signal from 0 to N and form 1 to N+1, where N=len(Data)-1
-        wk = (-1j/tau) * np.log(uk) + FrqC              # uk was exp(i*tau(Wk-FrqC)) ->wk is Wk-FrqC, (Here there is a sign of difference to the theory)
+        wk = (-1j/tau) * np.log(uk) + FrqC              # uk was exp(i*tau(Wk-FrqC)) ->wk is Wk-FrqC
         dk = dk * (-1j * dFrq / (2 * np.pi))            # The amplitudes are rescaled to come back to the continous Fourier transform
         dk = dk/uk**i                                   # Correction given by the shift stating form 0 and 1
         
