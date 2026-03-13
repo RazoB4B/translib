@@ -9,6 +9,10 @@ Created on Sat Feb 28 17:37:50 2026
 
 import numpy as np
 import scipy.linalg as la
+import matplotlib.pyplot as plt
+from matplotlib import gridspec
+from translib import plotOpts as po
+po.Colorblind(True)
 
 
 def rootPolish(a, uk, polish):
@@ -70,119 +74,120 @@ def HarmInvPade(FFTData, polish=10):
     uk = rootPolish(a, uk, polish)
     
     # Generate the matrix in Eq. (6) - c_j = Sum(A_k * z_k^j, k)
-    Az = np.vander(uk, jmax+1, increasing=True).T
+    Az = np.zeros([jmax+1, jmax+1], dtype='complex')
+    for j in range(jmax+1):
+        Az[j, :jmax+1] = uk[j]**np.arange(jmax+1)
     # Az = A_k * z_k^j (This is the transverse of the Vandermonde matrix)
     d = FFTData[:jmax+1]         # c_{j}
     
     # Finding the coefficiens A_k
-    lu, piv = la.lu_factor(Az)
+    lu, piv = la.lu_factor(Az.T)
     dk = la.lu_solve((lu, piv), d)
     return uk, dk
 
 
-def hi_fourier(cd, w0, wl, wr, tau, polish=10, Stepfrq=None, PtError=0.1, MinAmpl=1e-7):
-    r'''
-    returns an complex np.array 
-    each element contains [complex frequency, complex amplitude, absolute amplitude, err]
+def HarInvFourier(FFTData, FrqI, FrqF, dFrq, polish=10, PtError=0.1, MinAmpl=1e-7):
+    '''
+    Computes the complex frequencies and the complex amplitudes of a given signal,
+    only certain resonances in the interval and with larger amplitude than MinAmpl.
     
-    cd: FFTData which is assumed to be equal to \sum_k (-i*Ak)*e^{i(wk-w0)t} if cd is obtained by Fourier Transformation of Frequency data, data has to be hifted by wo before transforming
-    wl: left border of frequency range, 
-    wr: right border of frequency range, 
-    w0: middle of frequency range, 
-    tau: 2*pi*deltaT where deltaT =1/(w2-w1)
-    is taken from FFT,
-    Stepfrq: distance between two measured frequencies
-    polish: defining how often rootpolish is used in HarmInvPade
+    FFTData: The data to fit (on the time domain)
+    FrqI: the lowest frequency
+    FrqF: the highest frequency
+    dFrq: Frequency spacing 
+    polish: Number of iterations to polish the result
+    PtError: Maximum error allowed between the two extraction
+    MinAmpl: Minimum amplitude allowed
     
-    hi_fourier returns the complex positions wk of the resonances and the amplitudes Ak which contribute to the initial signal cd
-    Only resonances between wl and wr are accepted. 
-    Furthermore only resonaces which shift less then PtError when the initial data cd is shifted by one point are accepted 
-      and the abs-value of the amplitude has to exeed MinAmpl.
-    ''' 
-    #Set Constants
-    nd = len(cd)-2   # nd: Number of Datapoints minus 2
-    result=[]        # Complex array to return result
+    Returns the eigenfrequencies uk and the eigenamplitudes dk as
+    [complex frequency, complex amplitude, absolute amplitude, err]
+    '''
+    N = len(FFTData)-1          # Number of Datapoints minus 2
+    FrqC = (FrqI+FrqF)*0.5      # Central frequency
+    tau = 2*np.pi/(FrqF-FrqI)   # Time-stepwidth in fft multiplied with 2 pi
 
-    jmax = (nd-2)//2  # jmax: (Number of data- 4)/2
-    freq=np.zeros(shape=(2,jmax+1), dtype=complex) #here the frequencies of the resonances will which are obtained by the shifted and unshifted data
-    ampl=np.zeros(shape=(2,jmax+1), dtype=complex) #here the amplitudes if the resonances will be stored which are obtained by the shifted and unshifted data
-
-    # HarmInv-Pade is calculated two times with data shifted by one Datapoint
-    for p in np.arange(0,2):
-        uk,dk=HarmInvPade(cd[p:nd+p+1], nd, polish=polish)
-        wk=np.zeros(shape=(len(dk)), dtype=np.complex128) # here the extracted Resonances Wk will be stored
-        wk = (-1j / tau) * np.log(uk)                     # uk was exp(i*tau(Wk-w0)) ->wk is Wk-wo
-        dk = dk * (-1j * Stepfrq / (2 * np.pi))           # ??? Wieso werden die dks noch einmal reskaliert
-        dk = dk/uk**p  # When data has been shifted the Amplitude has to be corrected
-
-        tmp=np.argsort(np.real(wk))  # the resonances are sorted by incrasing size
-        dk= dk[tmp]          # Also the amplitudes are sorted the same way
-        wk= wk[tmp]
-
-        wk = w0 + wk #now wk=Wk
-        index = 1-p
-        # frequencies and amplitudes are stored in the corresponding arrays
-        freq[index,:] = wk   
-        ampl[index,:] = dk
-
+    # HarmInvPade is calculated two times with data shifted by one point
+    jmax = (N-3)//2  # jmax: (Number of data - 4)/2
+    freq = np.zeros([2, jmax+1], dtype='complex')  
+    ampl = np.zeros([2, jmax+1], dtype='complex')
+    for i in range(2):
+        uk, dk, = HarmInvPade(FFTData[i:N+i], polish)   # Croping the signal from 0 to N and form 1 to N+1, where N=len(Data)-1
+        wk = (-1j/tau) * np.log(uk) + FrqC              # uk was exp(i*tau(Wk-FrqC)) ->wk is Wk-FrqC, (Here there is a sign of difference to the theory)
+        dk = dk * (-1j * dFrq / (2 * np.pi))            # The amplitudes are rescaled to come back to the continous Fourier transform
+        dk = dk/uk**i                                   # Correction given by the shift stating form 0 and 1
+        
+        _ind = np.argsort(np.real(wk))  
+        dk = dk[_ind]
+        wk = wk[_ind]
+        
+        freq[i-1,:] = wk   
+        ampl[i-1,:] = dk
+        
     # The two results are compared to each other: 
-    # Only resonances that appear in both reaults up to en Error of PtError are accepted
-    err = np.zeros(shape=(jmax+1), dtype=float)
-    err[:] = 99999999999.0e0
-    for l in np.arange(0, jmax):
-        for j in np.arange(0, jmax): 
-            #The minimum distance between a resonance in Result 0 to an arbitrary other resonance in Result 1 is calculated
-            if (abs(freq[0,l] - freq[1,j]) < err[l]) :
-                err[l] = abs(freq[0,l] - freq[1,j])
-        # Filtering of resonances:Resonances must fulfill
-        # Error smaller then PtError and its np.real must be between wl and wr
-        # and amplitude greater then MinAmpl
-        if ( (err[l] < PtError) 
-            and (np.real(freq[0,l]) >= wl) and (np.real(freq[0,l]) < wr) 
-            and (np.abs(ampl[0,l]) > MinAmpl) ) :
-                result.append([freq[0,l], ampl[0,l], abs(ampl[0,l]), err[l]])
+    # Only resonances that appear in both reaults up to PtError are accepted
+    result = []
+    for i,_frq1 in enumerate(freq[0,:]):
+        _err = np.inf
+        for _frq2 in freq[1,:]:
+            if np.abs(_frq1 - _frq2)<_err:
+                _err = np.abs(_frq1 - _frq2) #The minimum distance between the resonances in both arrays is calculated
+        # Resonances must fulfill
+        # Error smaller than PtError and its real part between FrqI and FrqF
+        # And amplitudes must be greater than MinAmpl
+        if ((_err<PtError) and (np.real(_frq1)>=FrqI) and (np.real(_frq1)<FrqF) and (np.abs(ampl[0,i])>MinAmpl)):
+            result.append([_frq1, ampl[0,i], _err])
     return np.array(result)
 
 
-def hi_base(Frqs, Data, ResoMax=200, Reflection=False, FrqI=None, FrqF=None, FrqMin=None, 
-            FrqMax=None, Phase=None,
-            plot_flag=False, noline=True, 
-            polish=10, MinAmpl=1e-5, PtError=0.1, hi_filter=1e-4, oldflag=False):
+def DataReconstruction(Frqs, Res, Amps):
     '''
+    Computes the sum of complex Lorentzians for the complex resonant frequencies 
+    and amplitudes
+    
+    Frqs: The frequency domain
+    Res: the complex resonant frequencies
+    Amps: the complex resonant amplitudes
+    '''
+    result = np.zeros([len(Frqs)], dtype='complex')
+    for i in range(len(Res)):
+        result += Amps[i]/(Frqs - Res[i])
+    return result
+
+
+def HarInv(Frqs, Data, ResoMax=200, MinAmpl=1e-5, polish=10, PtError=0.1, Filter=1e-4, 
+           Reflection=False, NoLine=True, Plot=False, FrqI=None, FrqF=None, FrqMin=None, 
+           FrqMax=None, Phase=None):
+    r'''
     Frqs: the frequency axis
-    Data: the conmplex data to fit
+    Data: the complex data to fit
     ResoMax: Maximun number of resonances to find
+    polish: Number of iterations to polish the result
+    PtError: Maximum error allowed between the two extraction
+    Filter: Only resonances with sufficent resonance depth/height>Filter are taken 
+            into account
+    MinAmpl: Minimum amplitude allowed
     Reflection: if True adjusts the constant from s_ii=\delta_ii-\sum of Lorentzians
+    NoLine: If True, no additional fit of a linear background is performed
     FrqI: the lowest frequency
     FrqF: the highest frequency
-    FrqMin, FrqMax: defines the interval for which resonance frequencies are taken into account (remove border effects)
-    Phase: if reflection an additional phase takes into account that the coupling to the antenna is not constant and it is a function of the frequency
-         phi is either a scalar or of length data 
-    ################
-    ------------------
-    returns (info, ListOFResonances)
-    info is a dictionary that contains:
-        'nRes': number of resonances
-        'FrqI','FrqF' : maximal and minimal frequency
-        'valmin','valmax' : 
-        'fit_slope',fit_const' : slope and constant of the linear fit performed 
-            after hi to calculate the deviations
-    if oldflag=True the return gives back erg structure originating from idl
+    FrqMin, FrqMax: defines the interval for which resonance frequencies are taken 
+                    into account (remove border effects)
+    Phase: if reflection an additional phase takes into account that the coupling 
+           to the antenna is not constant and it is a function of the frequency. phi 
+           is either a scalar or of length data 
     '''
-    if FrqI in None:
+    if FrqI is None:
         FrqI = Frqs[0]
     if FrqF is None:
         FrqF = Frqs[-1]  
     if FrqMin is None:
         FrqMin = FrqI
     if FrqMax is None:
-        FrqMax = FrqF   
+        FrqMax = FrqF
           
     dFrq = np.ptp(Frqs)/Frqs.size       # Frequency spacing 
-    FrqC = (FrqI+FrqF)*0.5              # Central frequency
     FrqInds = np.where((Frqs >= FrqI) & (Frqs <=FrqF))[0]
     FrqsPart = Frqs[FrqInds]            # Cutting the frequency according to the imposed limits
-    tau = 2*np.pi/(FrqF-FrqI)           # Time-stepwidth in fft multiplied with 2 pi
 
     if Reflection: # in case of reflection the constant or the phase needs to be substracted
         if Phase is not None:
@@ -193,112 +198,156 @@ def hi_base(Frqs, Data, ResoMax=200, Reflection=False, FrqI=None, FrqF=None, Frq
         DataPart = Data[FrqInds]
         
     k_index = np.arange(0, len(DataPart))
-    # ATTENTION: hi_fourier expects a data array which is the fourier transform of data(nu+FrqC)
-    # i.e the initial data on the intervall [FrqI,FrqF] but shifted by FrqC. As the FFT asumes that
+    # ATTENTION: hi_fourier expects a data array which is the fourier transform of data(nu+(FrqI+FrqF)/2)
+    # i.e the initial data on the intervall [FrqI,FrqF] but shifted by (FrqI+FrqF)/2. As the FFT asumes that
     # the data are on the frequency range [0,FrqF-FrqI] an aditional phase shift
     # has to be taken into account! This is done by (-1)^k_index
     FTData = np.fft.ifft(DataPart) * (-1)**k_index * len(DataPart)  # To check if this normalization is interesting or useful
     # multiplication of len() to have the same definition of FFT as in IDL
     FTDataPart = FTData[:ResoMax+1]  # cutoff of the Fourier Tranformed data
-    ###################
-   
-    hi_erg = hi_fourier(FTDataPart, FrqC, FrqI, FrqF, tau, Stepfrq=dFrq, polish=polish, PtError=PtError, MinAmpl=MinAmpl)  #call hi fourier
-    if len(hi_erg) == 0:
-        """No resonances returned by hi_fourier"""
+    HI = HarInvFourier(FTDataPart, FrqI, FrqF, dFrq, polish=polish, PtError=PtError, MinAmpl=MinAmpl)
+    if len(HI) == 0:
+        print('No resonances were found')
         return None
-    # Filter noise resonances: 
+    
+    # Croping the borders
+    _ind = np.where((HI[:,0] >= FrqMin) & (HI[:,0] <= FrqMax))[0]
+    HI =  HI[_ind,:]
+    
     # Only resonances with sufficent resonance depth/height are taken into account
-    val = np.where((np.abs(hi_erg[:,1])/np.imag(hi_erg[:,0])) >= hi_filter)[0]
-    n_res= len(val) # number of valid resonances
-    hi_erg =  hi_erg[val,:]
-
-    #Start reconstruction
-    Ausschnitt=np.where((FrqsPart >= FrqMin) & (FrqsPart <= FrqMax))[0]
-
-    Rekonstr = resToData(FrqsPart[Ausschnitt], hi_erg)
-    ErrorArr = Rekonstr - DataPart[Ausschnitt] #deviation of hi reconstruction and original data
-    erg=np.zeros(9+2*n_res,dtype=complex)
-    if noline:  #if keyword /noline is set, then no additional fit of a linear backgrund is performed
-        slope_re,const_re,chinrRe=(0,0,0)
-        slope_im,const_im,chinrIm=(0,0,0)
-        Error=np.sum(np.abs(ErrorArr)**2) # Error is square sum of ErrorArr
-    else :  #else the linear line is fitted
-        #fit linear slope to ErrorArr
-        (slope_re,const_re),chinrRe=np.linalg.lstsq(np.vstack([FrqsPart[Ausschnitt],np.ones(len(FrqsPart[Ausschnitt]))]).T,np.real(ErrorArr), rcond=None)[0:2]
-        (slope_im,const_im),chinrIm=np.linalg.lstsq(np.vstack([FrqsPart[Ausschnitt],np.ones(len(FrqsPart[Ausschnitt]))]).T,np.imag(ErrorArr), rcond=None)[0:2]
-        Error=chinrRe+chinrIm  #error is the non reduced chisquare of the two linear fits
-    #Store Data in erg-Array
-    if oldflag:
-        erg[0]=n_res
-        erg[1]=Error  #error is the non reduced chisquare of the two linear fits
-        erg[2]=FrqI
-        erg[3]=FrqF
-        erg[4]=FrqMin
-        erg[5]=FrqMax
-        erg[6]=slope_re+1j*slope_im # complex slope for the linear fit
-        erg[7]=const_re+1j*const_im # complex constant for the linear fit
-        erg[8:8+n_res]=hi_erg[:,0]
-        erg[8+n_res:8+2*n_res]=hi_erg[:,1]
-        result=erg
-    else:
-        info={'nRes': n_res, 'error':Error, 
-              'FrqI':FrqI,'FrqF':FrqF, 'FrqMin':FrqMin,'FrqMax':FrqMax,
-              'fit_slope':slope_re+1j*slope_im, # complex slope for the linear fit              
-              'fit_const':const_re+1j*const_im # complex constant for the linear fit
-              }
-        result=(info,hi_erg[:,:])
-    if plot_flag:
-        plt.figure('Hi_FFT');plt.clf()
-        plt.semilogy(np.abs(FTData)**2,label='FFT_data')
-        plt.ylabel('|FFT|$^2$');plt.xlabel('datapoint n')
-        plt.axvline(ResoMax, ls=':', label=str(ResoMax))
-        if not noline:
-            Rekonstr+=(slope_re+1j*slope_im)*FrqsPart[Ausschnitt] + const_re+1j*const_im
-        if Reflection:
-            ylabel_str='Reflection {0}S_{{ii}}{1}' # {{ ans }} used due to ''.format later on
-            DataPart+=0
-            Rekonstr+=1#1-.5
-            #Rekonstr+=-( (slope_re+1j*slope_im)*frq_part[Ausschnitt]+(const_re+1j*const_im))
-        else:
-            ylabel_str='Transmission {0}S_{{ij}}{1}'
-        res=np.array([ np.real(i[0]) for i in hi_erg])
-        plot4x4((FrqsPart,FrqsPart[Ausschnitt]),(DataPart,Rekonstr),labels=['Original data','Reconstruction'],title='Hi_ControlAll', res=res)
-        diff=DataPart[Ausschnitt]-Rekonstr
-        frq_diff=FrqsPart[Ausschnitt]
-        plot4x4((frq_diff,),(diff,),labels=('data-reconstr',),title='Hi_ControlAll Diff')
+    _ind = np.where((np.abs(HI[:,1])/np.imag(HI[:,0])) >= Filter)[0]
+    HI =  HI[_ind,:]
     
-    return result#erg
-
-# -*- coding: utf-8 -*-
-"""
-Originally from IDL implementation
-call either: 
-    hi_base to perform a single evaluation of with harmonic inversion 
-    example: 
-      hi.hi_base(frq,data_part,frq[0],frq[-1],reflection_flag=True, phi=phase_corr, plot_flag=True, noline=False)
-      where phase_corr is an array of len(frq) doing the phase correction for the reflection
-or 
-    hi
-
-
-Created on Thu Mar 31 18:33:24 2016
-
-@author: kuhl
-"""
-import matplotlib.pyplot as plt
-from mesopylib.utilities.plot.plot_exp_spectra import plot4x4
+    # Deviation from the original data
+    Recons = DataReconstruction(FrqsPart, HI[:, 0], HI[:, 1])
+    Diff = DataPart - Recons
     
-def resToData(frq, Res, Ampl=None):
-    """
-    calculates a sum of complex Lorentzians, 
-    where the Res=[complex frequency, complex amplitude]
-    or Res=complex frequency and Ampl=complex amplitude
-    """
-    result=np.zeros(len(frq), dtype=complex)
-    if Ampl is None:
-        for i in np.arange(0, len(Res[:,0])) :
-            result += Res[i,1]/(frq - Res[i,0])
+    # Fits a linear background
+    if NoLine:
+        slope_re, const_re, chinrRe = [0, 0, 0]
+        slope_im, const_im, chinrIm = [0, 0, 0]
+        Error = np.sum(np.abs(Diff)**2)
     else:
-        for i in np.arange(0, len(Res)) :
-            result += Ampl[i]/(frq - Res[i])
+        _x = np.column_stack([FrqsPart, np.ones_like(FrqsPart)])
+        (slope_re, const_re), res_re, *_ = np.linalg.lstsq(_x, np.real(Diff), rcond=None)
+        (slope_im, const_im), res_im, *_ = np.linalg.lstsq(_x, np.imag(Diff), rcond=None)
+        
+        chinrRe = res_re[0] if res_re.size else 0
+        chinrIm = res_im[0] if res_im.size else 0
+    
+        Error = chinrRe + chinrIm
+        Recons += (slope_re+1j*slope_im)*FrqsPart + const_re+1j*const_im
+        Diff = DataPart - Recons
+    
+    info = {'nRes': len(HI[:,0]), 'error':Error, 
+            'FrqI':FrqI,'FrqF':FrqF, 'FrqMin':FrqMin,'FrqMax':FrqMax,
+            'fit_slope':slope_re+1j*slope_im,'fit_const':const_re+1j*const_im}
+    result = [info, HI]
+    
+    if Plot:
+        BandLimited(FTData, ResoMax)
+        Difference(FrqsPart, Diff)
+        Comparison(FrqsPart, DataPart, Recons, np.real(HI[:,0]))
     return result
+
+
+def BandLimited(FTData, Max):
+    '''
+    Plots the Band limited signal
+    
+    FTData: the band limited signal
+    Max: the maximum number of points that are considered 
+    '''
+    Spec = gridspec.GridSpec(ncols=2, nrows=1, wspace=0.18)
+    
+    fig = plt.figure(figsize=(8, 3))
+    ax = []
+    for i in range(2):
+        ax.append(fig.add_subplot(Spec[i]))
+    
+        ax[i].plot(np.abs(FTData)**2)
+        ax[i].axvline(Max, ls='--')
+        ax[i].set_xlabel(r'$j$', fontsize=15)
+        ax[i].set_yscale('log')
+    
+    ax[0].set_xlim(0, len(FTData))
+    ax[0].set_ylabel(r'$|c(j\tau)|^2$', fontsize=15)
+    ax[1].set_xlim(0, Max+100)
+    ax[1].set_title('Band Limited signal', x=-0.1, fontsize=15)
+    plt.show()
+    
+    
+def Difference(Frqs, Data):
+    '''
+    Plots the differences between the original data and the reconstruction
+    
+    Frqs: the frequency domain
+    Data: the difference between the original and the reconstruction datas
+    '''
+    Spec = gridspec.GridSpec(ncols=2, nrows=2, wspace=0.3, hspace=0.12)
+    
+    fig = plt.figure(figsize=(8, 6))
+    ax = []
+    for i in range(4):
+        ax.append(fig.add_subplot(Spec[i]))
+        ax[i].set_xlim(Frqs[0], Frqs[-1])
+        
+    ax[0].plot(Frqs, np.abs(Data))
+    ax[1].plot(Frqs, np.angle(Data))
+    ax[2].plot(Frqs, np.real(Data))
+    ax[3].plot(Frqs, np.imag(Data))
+    
+    ax[0].set_ylabel(r'Amplitude', fontsize=15)
+    ax[1].set_ylabel(r'Phase', fontsize=15)
+    ax[2].set_ylabel(r'Real part', fontsize=15)
+    ax[3].set_ylabel(r'Imaginary part', fontsize=15)
+    
+    ax[2].set_xlabel(r'Frequency', fontsize=15)
+    ax[3].set_xlabel(r'Frequency', fontsize=15)
+    
+    ax[1].set_title('Differences', x=-0.15, fontsize=15)
+    plt.show()
+    
+    
+def Comparison(Frqs, DataOr, DataRec, ResFrq):
+    '''
+    Plots a comparison between the original data and the reconstruction
+    
+    Frqs: the frequency domain
+    DataOr: the original data
+    DataRec: the reconstructed data
+    ResFrq: the resonance frequencies
+    '''
+    Spec = gridspec.GridSpec(ncols=2, nrows=2, wspace=0.3, hspace=0.12)
+    
+    fig = plt.figure(figsize=(8, 6))
+    ax = []
+    for i in range(4):
+        ax.append(fig.add_subplot(Spec[i]))
+        ax[i].set_xlim(Frqs[0], Frqs[-1])
+        
+    ax[0].plot(Frqs, np.abs(DataOr))
+    ax[1].plot(Frqs, np.angle(DataOr))
+    ax[2].plot(Frqs, np.real(DataOr))
+    ax[3].plot(Frqs, np.imag(DataOr), label='Original data')
+    
+    ax[0].plot(Frqs, np.abs(DataRec))
+    ax[1].plot(Frqs, np.angle(DataRec))
+    ax[2].plot(Frqs, np.real(DataRec))
+    ax[3].plot(Frqs, np.imag(DataRec), label='Reconstruction')
+    
+    for _res in ResFrq:
+        ax[0].axvline(_res, ls=':', color='C05')
+    
+    ax[0].set_ylabel(r'Amplitude', fontsize=15)
+    ax[1].set_ylabel(r'Phase', fontsize=15)
+    ax[2].set_ylabel(r'Real part', fontsize=15)
+    ax[3].set_ylabel(r'Imaginary part', fontsize=15)
+    
+    ax[2].set_xlabel(r'Frequency', fontsize=15)
+    ax[3].set_xlabel(r'Frequency', fontsize=15)
+    ax[3].legend(fontsize=12)
+    
+    ax[1].set_title('Comparison', x=-0.15, fontsize=15)
+    plt.show()
+    
