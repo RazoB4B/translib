@@ -26,22 +26,22 @@ def ColorMaps(_CLabel=None):
         
     if _CLabel == 'BlackRed':
         _colors = [(0, 0, 0), (1, 0, 0)]
-        _cmap = LinearSegmentedColormap.from_list('Custom', _colors, N=1000)
+        _cmap = LinearSegmentedColormap.from_list('Custom', _colors, N=10000)
     elif _CLabel == 'BlackGreen':
         _colors = [(0, 0, 0), (0, 1, 0)]
-        _cmap = LinearSegmentedColormap.from_list('Custom', _colors, N=1000)
+        _cmap = LinearSegmentedColormap.from_list('Custom', _colors, N=10000)
     elif _CLabel == 'BlackBlue':
         _colors = [(0, 0, 0), (0, 0, 1)]
-        _cmap = LinearSegmentedColormap.from_list('Custom', _colors, N=1000)
+        _cmap = LinearSegmentedColormap.from_list('Custom', _colors, N=10000)
     elif _CLabel == 'RedBlue':
         _colors = [(1, 0, 0), (0, 0, 0), (0, 0, 1)]
-        _cmap = LinearSegmentedColormap.from_list('Custom', _colors, N=1000)
+        _cmap = LinearSegmentedColormap.from_list('Custom', _colors, N=10000)
     elif _CLabel == 'BlackPink':
         _colors = [(0, 0, 0), (159/255, 43/255, 104/255)]
-        _cmap = LinearSegmentedColormap.from_list('Custom', _colors, N=1000)
+        _cmap = LinearSegmentedColormap.from_list('Custom', _colors, N=10000)
     elif _CLabel == 'BlackBrown':
         _colors = [(0, 0, 0), (193/255, 154/255, 107/255)]
-        _cmap = LinearSegmentedColormap.from_list('Custom', _colors, N=1000)
+        _cmap = LinearSegmentedColormap.from_list('Custom', _colors, N=10000)
     else:
         print('ColorMap not defined. Existing options: Black[Red, Green, Blue, Pink, Brown]')
     return _cmap
