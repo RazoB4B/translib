@@ -407,37 +407,43 @@ class SavingBest:
     diffuser, then this array is automatically taken.
 
     Initialization : Best = SavingBest()
-    Usage : Best(Diff, Loss, Scale)
+    Usage : Best(Diff, Amps, Loss, Times, Scale)
     
     Parameters
     ----------
-    Diff : 2D complex float tensor
-           The diffuser
-    Loss : Float
+    Diff : 2D real float tensor
+           The phase values of the diffuser
+    Amps : 2D real float tensor
+           The amplitude of the diffuser
+    Loss : Float array
            Error to minimice by the optimizer
-    Scale : Float
+    Times : Float array
+            The time scale used to solve the system
+    Scale : Float tensor
             The scale obtained for Diff
     '''
     def __init__(self):
-        self.Best = None
+        self.Diff = None
+        self.Amps = None
         self.Loss = None
         self.Scale = None
         self.Times = None
 
-    def __call__(self, Diff, Loss, Times, Scale):
+    def __call__(self, Diff, Amps, Loss, Times, Scale):
         if ((self.Loss is None) or (Loss[-1]<self.Loss[-1])):
             self.Loss = Loss
-            self.Best = Diff
+            self.Diff = Diff
+            self.Amps = Amps
             self.Scale = Scale
             self.Times = Times
-            print(f'Saving best diffuser with loss {self.Loss[-1]} and scale {self.Scale}')
+            print(f'Saving best diffuser with loss {self.Loss[-1]} and scale {self.Scale.item()}')
 
 
 def Start(MaxSteps, pbar=None):
     if pbar is not None:
         pbar.close()
-    TotLoss = np.zeros([MaxSteps])
-    ElapTime = np.zeros([MaxSteps])
+    TotLoss = []
+    ElapTime = []
     timei = time.time()
     _step = 0
     pbar = tqdm(total=MaxSteps)
@@ -445,11 +451,23 @@ def Start(MaxSteps, pbar=None):
     return TotLoss, ElapTime, timei, _step, pbar
 
 
-def FindDiffuser(Input, LR_init=1, LR_prop=0.01, deph=0, TryR=False, InitSca=None,  InitDiff=None, 
+def UnpackDiffuser(Diff, GAmp, eps=1e-4):
+    Amps = np.abs(Diff)
+    Amps = Amps**(1/GAmp)
+    Amps = Amps / (Amps.max() + 1e-12)
+    Amps = np.clip(Amps, eps, 1 - eps)
+    Amps = np.log(Amps / (1 - Amps))
+    Phase = np.angle(Diff)
+    return Amps, Phase
+
+
+def FindDiffuser(Input, LR_init=1, LR_propA=0.1, LR_propS=0.01, GAmp=1, deph=0, TryR=False, InitSca=None,  InitDiff=None, 
                  DiffSize=None, MaxSteps=None, MaxLoss=None, NPad=None):
     '''
     DiffSize: Diffuser size
     '''
+    lambda_amp = 0.1
+    lambda_scale = 0.01
     device = "cpu"
     EarlyS = EarlyStopping(Patience=100, Mindelta=0)
     Threshold = IncreasingThreshold(Patience=5, Increase=0.05)
@@ -493,16 +511,22 @@ def FindDiffuser(Input, LR_init=1, LR_prop=0.01, deph=0, TryR=False, InitSca=Non
     if InitDiff is None:
         param_diff = 2*np.pi*(torch.rand(DiffSize, DiffSize, requires_grad=True) - 0.5)
         param_diff = param_diff.clone().detach().requires_grad_(True)
+        amps_raw = torch.nn.Parameter(torch.zeros(DiffSize, DiffSize, device=device))
     else:
-        param_diff = torch.from_numpy(InitDiff).clone().detach().to(torch.float32).to(device).requires_grad_(True)
-    optimizer = torch.optim.Adam([{'params':param_diff, 'lr':LR_init},{'params':scale, 'lr':LR_init*LR_prop}])
+        init_amps, init_phase = UnpackDiffuser(InitDiff, GAmp)
+        param_diff = torch.tensor(init_phase, dtype=torch.float32, device=device, requires_grad=True)
+        amps_raw  = torch.tensor(init_amps,  dtype=torch.float32, device=device, requires_grad=True)
+    optimizer = torch.optim.Adam([{'params':param_diff, 'lr':LR_init},
+                                  {'params': amps_raw, 'lr': LR_init*LR_propA},
+                                  {'params':scale, 'lr':LR_init*LR_propS}])
 
     # Optimization
     TotLoss, ElapTime, timei, _step, pbar = Start(MaxSteps, pbar=None)
     while _step < MaxSteps:
         optimizer.zero_grad()
-
-        diff = torch.exp(1j*param_diff)
+    
+        amps = torch.sigmoid(amps_raw)
+        diff = (amps**GAmp)*torch.exp(1j*param_diff)
         scale_eff = torch.exp(scale)
 
         pred_a0 = Norm(GetFarField_Torch(diff*V0, NPad, WinSize=SizeArray, Scale=scale_eff))
@@ -516,52 +540,55 @@ def FindDiffuser(Input, LR_init=1, LR_prop=0.01, deph=0, TryR=False, InitSca=Non
         loss_a0 = L2_Norm_Torch(a02_pred, a02_target)
         loss_S0 = L2_Norm_Torch(S0_pred, S0_target)
         loss_S1 = L2_Norm_Torch(S1_pred, S1_target)
+        loss_amp = torch.mean(amps * (1 - amps))
+        loss_scale = (torch.log(scale_eff))**2
 
-        loss_total = loss_a0 + loss_S0 + loss_S1
+        loss_total = loss_a0 + loss_S0 + loss_S1 + lambda_amp*loss_amp + lambda_scale*loss_scale
 
         loss_total.backward()
         optimizer.step()
 
-        TotLoss[_step] = loss_total.item()
-        ElapTime[_step] = time.time() - timei
+        TotLoss.append(loss_total.item())
+        ElapTime.append(time.time() - timei)
         _step += 1
         pbar.update(1)
 
         EarlyS(loss_total.item())
         if TryR and (EarlyS.should_stop and loss_total.item()>MaxLoss):
             MaxLoss = Threshold(MaxLoss, loss_total.item())
-            Best(param_diff, TotLoss[:_step], ElapTime[:_step], scale_eff.item())
+            Best(param_diff, amps, TotLoss[:_step], ElapTime[:_step], scale_eff)
+
             if Best.Loss[-1] < MaxLoss:
                 print(f'Best diffuser with loss {Best.Loss[-1]} has been previously found')
-                param_diff = Best.Best
+                param_diff = Best.Diff
+                amps = Best.Amps
                 scale_eff = Best.Scale
                 TotLoss = Best.Loss
                 ElapTime = Best.Times
             else:
                 EarlyS = EarlyStopping(Patience=100, Mindelta=0)
-                with torch.no_grad():
-                    param_diff = 2*np.pi*(torch.rand(DiffSize, DiffSize) - 0.5)
-                    scale = torch.log(torch.tensor([InitSca], device=device))
-                param_diff = param_diff.clone().detach().requires_grad_(True)
-                scale = scale.clone().detach().requires_grad_(True)
-                optimizer = torch.optim.Adam([{'params':param_diff, 'lr':LR_init},{'params':scale, 'lr':LR_init*LR_prop}])
+                param_diff = torch.nn.Parameter(2*np.pi*(torch.rand(DiffSize, DiffSize, device=device) - 0.5))
+                amps_raw = torch.nn.Parameter(torch.zeros(DiffSize, DiffSize, device=device))
+                scale = torch.nn.Parameter(torch.log(torch.tensor([InitSca], device=device)))
+
+                optimizer = torch.optim.Adam([{'params': param_diff, 'lr': LR_init},
+                                              {'params': amps_raw,  'lr': LR_init * LR_propA},
+                                              {'params': scale,     'lr': LR_init * LR_propS}])
                 TotLoss, ElapTime, timei, _step, pbar = Start(MaxSteps, pbar=pbar)
         if EarlyS.should_stop:
-            try:
-                print(f'Found - Loss={loss_total.item()} - Scale={scale_eff.item()}')
-                Scale = scale_eff.item()
-            except:
-                print(f'Found - Loss={loss_total} - Scale={scale_eff}')
-                Scale = scale_eff
+            print(f'Found - Loss={TotLoss[-1]} - Scale={scale_eff.item()}')
+            Scale = scale_eff.item()
             TotLoss = TotLoss[:_step]
             ElapTime = ElapTime[:_step]
             break
 
-    Diff = param_diff.detach().numpy()
+    Phase = param_diff.detach().numpy()
+    Amps = amps.detach().numpy()
+    Diff = (Amps**GAmp)*np.exp(1j*Phase)
     return Diff, Scale, TotLoss, ElapTime
 
 
-def FindBigDiffuser(Input, Div=2, LR_init=1, LR_prop=0.01, deph=0, InitSca=None,
+def FindBigDiffuser(Input, Div=2, LR_init=1, LR_propA=0.1, LR_propS=0.01, GAmp=1, deph=0, InitSca=None,
                     DiffSize=None, MaxSteps=None, MaxLoss=None, NPad=None):
     a02= Input[0]
     S0 = Input[1]
@@ -580,12 +607,12 @@ def FindBigDiffuser(Input, Div=2, LR_init=1, LR_prop=0.01, deph=0, InitSca=None,
 
         if i == Div:
             print(f'Starting with a size of {len(_a02)}x{len(_a02)} pixels')
-            Diff, Scale, _TotLoss, _ElapTime = FindDiffuser([_a02, _S0, _S1], LR_init, LR_prop, deph, True, InitSca=InitSca, 
-                    DiffSize=_DiffSize, MaxSteps=MaxSteps, MaxLoss=MaxLoss, NPad=NPad)
+            Diff, Scale, _TotLoss, _ElapTime = FindDiffuser([_a02, _S0, _S1], LR_init, LR_propA, LR_propS, GAmp, deph, 
+                    True, InitSca=InitSca, DiffSize=_DiffSize, MaxSteps=MaxSteps, MaxLoss=MaxLoss, NPad=NPad)
         else:
             print(f'Increasing the size of the system to {len(_a02)}x{len(_a02)} pixels')
-            Diff, Scale, _TotLoss, _ElapTime = FindDiffuser([_a02, _S0, _S1], LR_init/2, LR_prop, deph, False, InitSca=Scale,
-                    InitDiff=Diff, DiffSize=_DiffSize, MaxSteps=MaxSteps, MaxLoss=MaxLoss, NPad=NPad)
+            Diff, Scale, _TotLoss, _ElapTime = FindDiffuser([_a02, _S0, _S1], LR_init/2, LR_propA, LR_propS, GAmp, deph, 
+                    False, InitSca=Scale, InitDiff=Diff, DiffSize=_DiffSize, MaxSteps=MaxSteps, MaxLoss=MaxLoss, NPad=NPad)
 
         if i != 0:
             Diff = np.repeat(np.repeat(Diff, 2, axis=0), 2, axis=1)
@@ -597,5 +624,4 @@ def FindBigDiffuser(Input, Div=2, LR_init=1, LR_prop=0.01, deph=0, InitSca=None,
             TotLoss = _TotLoss
             ElapTime = _ElapTime
 
-    Diff = np.exp(1j*Diff)
     return Diff, Scale, TotLoss, ElapTime
