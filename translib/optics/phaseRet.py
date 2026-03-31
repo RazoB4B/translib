@@ -453,16 +453,17 @@ def Start(MaxSteps, pbar=None):
 
 def UnpackDiffuser(Diff, GAmp, eps=1e-4):
     Amps = np.abs(Diff)
-    Amps = Amps**(1/GAmp)
-    Amps = Amps / (Amps.max() + 1e-12)
-    Amps = np.clip(Amps, eps, 1 - eps)
-    Amps = np.log(Amps / (1 - Amps))
+    if GAmp != 0:
+        Amps = Amps**(1/GAmp)
+        Amps = Amps / (Amps.max() + 1e-12)
+        Amps = np.clip(Amps, eps, 1 - eps)
+        Amps = np.log(Amps / (1 - Amps))
     Phase = np.angle(Diff)
     return Amps, Phase
 
 
-def FindDiffuser(Input, LR_init=1, LR_propA=0.1, LR_propS=0.01, GAmp=1, deph=0, TryR=False, InitSca=None,  InitDiff=None, 
-                 DiffSize=None, MaxSteps=None, MaxLoss=None, NPad=None):
+def FindDiffuser(Input, LR_init=1, LR_propA=0.1, LR_propS=0.01, GAmp=1, deph=0, TryR=False, InitSca=None,
+                 InitDiff=None, DiffSize=None, MaxSteps=None, MaxLoss=None, NPad=None):
     '''
     DiffSize: Diffuser size
     '''
