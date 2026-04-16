@@ -9,6 +9,7 @@ import numpy as np
 import scipy.constants as sc
 from collections.abc import Iterable
 
+
 def RecWaveVector(ws, index=1, m=0, a=1, n=0, b=1, wnorm=True):
     """
     Takes the angular frequencies and computes the wave vector depending of the size of the

@@ -121,3 +121,32 @@ def L2_Norm(x, y):
     y: the array 2
     """
     return np.sqrt(np.mean(np.abs(x - y)**2))
+
+
+def XY(_x, _y, _allxy):
+    """
+    Considering a two set of coordinates x and y and unravel them in an alterning 
+    way them as function of a third array 
+
+    x: the array 1
+    y: the array 2
+    allxy: the array 3
+    """
+    iy = np.where(np.abs(_allxy[::-1] - _y) < 1e-6)[0][0]
+    if iy%2 == 0:
+       ix = np.where(np.abs(_allxy - _x) < 1e-6)[0][0]
+    else:
+       ix = np.where(np.abs(_allxy[::-1] - _x) < 1e-6)[0][0]
+    return ix + len(_allxy)*iy
+
+
+def polar(_x, _y):
+    """
+    From 2D coordinates, creates the respective maps in cylindrical coordinates
+
+    x: the array 1
+    y: the array 2
+    """
+    _z = _x + _y*1j
+    
+    return np.abs(_z), np.angle(_z)

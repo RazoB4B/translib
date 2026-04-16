@@ -188,7 +188,7 @@ def HarInv(Frqs, Data, ResoMax=200, MinAmpl=1e-5, polish=10, PtError=0.1, Filter
     dFrq = np.ptp(Frqs)/Frqs.size       # Frequency spacing 
     FrqInds = np.where((Frqs >= FrqI) & (Frqs <=FrqF))[0]
     FrqsPart = Frqs[FrqInds]            # Cutting the frequency according to the imposed limits
-
+    
     if Reflection: # in case of reflection the constant or the phase needs to be substracted
         if Phase is not None:
             DataPart = 1 - Data[FrqInds] * np.exp(1j*Phase[FrqInds])
@@ -202,7 +202,7 @@ def HarInv(Frqs, Data, ResoMax=200, MinAmpl=1e-5, polish=10, PtError=0.1, Filter
     # i.e the initial data on the intervall [FrqI,FrqF] but shifted by (FrqI+FrqF)/2. As the FFT asumes that
     # the data are on the frequency range [0,FrqF-FrqI] an aditional phase shift
     # has to be taken into account! This is done by (-1)^k_index
-    FTData = np.fft.ifft(DataPart) * (-1)**k_index * len(DataPart)  # To check if this normalization is interesting or useful
+    FTData = np.fft.ifft(DataPart) * (-1)**k_index * len(DataPart)  # Normalization of the FFT
     # multiplication of len() to have the same definition of FFT as in IDL
     FTDataPart = FTData[:ResoMax+1]  # cutoff of the Fourier Tranformed data
     HI = HarInvFourier(FTDataPart, FrqI, FrqF, dFrq, polish=polish, PtError=PtError, MinAmpl=MinAmpl)
