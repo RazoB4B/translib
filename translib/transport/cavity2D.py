@@ -76,11 +76,11 @@ def WaveVector_mp(ws, index=1, n=0, h=1, wnorm=True):
         ks = ws*index/sc.c
         
     # Complex vector that considers also the nonpropagative part
-    nprop = n*np.pi/h
+    nprop = n*mp.pi/h
     return mp.sqrt(ks**2 - nprop**2 + 0j)
 
 
-#%% ONE CYLINDER PHYSISCS
+#%% ONE DIELECTRIC CYLINDER PHYSISCS
 def QscaCylDiel(_m, _x):
     '''    
     Scattering efficiency of an individual Mie dielectric cylinder
@@ -275,7 +275,7 @@ def CharEquationCylDiel_mp(_Frqs, _epsilon, _h, _r, _l, _n):
                   
     References: Y. Kobayashi and S. Tanaka, IEEE 20, 10 (1980)
     """
-    _k = 2*np.pi*_Frqs/sc.c
+    _k = 2*mp.pi*_Frqs/sc.c
     _kz = _l*sc.pi/_h
     _u = _r*WaveVector_mp(_k, np.sqrt(_epsilon), _l, _h)
     _v = _r*WaveVector_mp(_k, 1, _l, _h)
@@ -408,3 +408,68 @@ def BzCylDiel(_x, _y, _z, _Frq, _epsilon, _h, _r, _l, _n, _trap=False):
         _Air = _c*np.exp(1j*_n*_phi) * np.sin(_l*np.pi*_z/_h) * ss.hankel2(_n, _v)
         
     return np.where(_rho<_r, _Diel, _Air)
+
+
+#%% ONE DIELECTRIC CYLINDER PHYSISCS
+
+def PotFactCylMet(h1, h2, r):
+    """
+    Computes the constant of the potencial term of the differential equation of a
+    metallic cylinder inside a cavity
+
+    h1: space between the cylinder and the cavity
+    h2: height of the cavity
+    r: radius of the cylinder
+    """
+    return (h2 - h1)/(h1*h2*r)
+
+
+def CharEquationCylMet(_Frqs, _h1, _h2, _r, _l, _n):
+    """
+    Characteristic equation of the resonant modes of a metallic cylinder in a cavity.
+
+    Frqs: array of frequencies
+    epsilon: refractive index of the cylinder 
+    h1: space between the cylinder and the cavity
+    h2: height of the cavity
+    r: radius of the cylinder
+    l: index associated with the height h
+    n: index associated with the radius r
+    """
+    ws = _Frqs*2*np.pi/sc.c
+    ks = WaveVector(ws, 1, _l, _h2)
+    v = _r*ks
+
+    J = ss.jv(_n, v)
+    Jp = ss.jvp(_n, v)
+    H = ss.hankel1(_n, v)
+    Hp = ss.h1vp(_n, v)
+    
+    lmb = PotFactCylMet(_h1, _h2, _r)
+    return (J*Hp/H - Jp)*ks - lmb*J
+
+
+def CharEquationCylMet_mp(_Frqs, _h1, _h2, _r, _l, _n):
+    """
+    Characteristic equation of the resonant modes of a metallic cylinder in a cavity.
+    This function uses mpmath that which is a package of arbitrary precision.
+
+    Frqs: array of frequencies
+    epsilon: refractive index of the cylinder 
+    h1: space between the cylinder and the cavity
+    h2: height of the cavity
+    r: radius of the cylinder
+    l: index associated with the height h
+    n: index associated with the radius r
+    """
+    ws = 2*mp.pi*_Frqs/sc.c
+    ks = WaveVector_mp(ws, 1, _l, _h2)
+    v = _r*ks
+        
+    J = mp.besselj(_n, v)
+    Jp = mp.besselj(_n, v, 1)
+    H = mp.hankel1(_n, v)
+    Hp = 0.5*(mp.hankel1(_n-1, v) - mp.hankel1(_n+1, v))
+    
+    lmb = PotFactCylMet(_h1, _h2, _r)
+    return (J*Hp/H - Jp)*ks - lmb*J

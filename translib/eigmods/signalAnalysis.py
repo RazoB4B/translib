@@ -7,7 +7,7 @@ Created on Fri Apr 10 17:14:36 2026
 """
 
 import numpy as np
-import mpmath as mp
+from scipy.optimize import minimize
 
 
 def FindPosibleResonances(_Frqs, _fun):
@@ -27,7 +27,7 @@ def FindPosibleResonances(_Frqs, _fun):
     return sorted(set(_Res))
 
 
-def FindComplexZeros(_Guess, _Fun, _args, _FrqI, _FrqF):
+def FindComplexZeros(_Guess, _Fun, _args, tol=1e6):
     """
     For a certain complex function Fun in a certain range, it computes the roots
     of the function using initial guess.
@@ -35,18 +35,29 @@ def FindComplexZeros(_Guess, _Fun, _args, _FrqI, _FrqF):
     Guess: the initial guess
     Fun: the mpmath function
     args: the other arguments of the function
-    FrqI: the lowest frequency
-    FrqF: the highest frequency
+    tol: tolerance for repeated roots
     """
-    _Res = []
-    for _guess in _Guess:
-        _f = lambda _s: _Fun(_s, *_args)
+    results = []
+    for g in _Guess:
+        def objective(x):
+            f_complex = x[0] + 1j*x[1]
+            val = _Fun(f_complex, *_args)
+            return abs(val)**2
+        
+        x0 = [np.real(g), np.imag(g)]
+        
         try:
-            _r = mp.findroot(_f, _guess)
-            _r = np.array(_r, dtype=complex)
-            if (np.real(_r)>=0 and np.imag(_r)>=0) and np.real(_r)/np.imag(_r)>=1 and np.abs(_r)<_FrqF and np.abs(_r)>_FrqI:
-                _Res.append(_r)
+            res = minimize(objective, x0, method='Nelder-Mead')
+            f_sol = res.x[0] + 1j*res.x[1]
+            
+            if res.fun < 1e-6:  # tolerance
+                results.append(f_sol)
         except:
             pass
-    _Res, _ = np.unique(_Res, return_counts=True)
-    return _Res
+        
+    unique = []
+    for res in results:
+        if not any(abs(res - u) < tol for u in unique):
+            unique.append(res)
+    
+    return np.array(unique)
