@@ -42,6 +42,9 @@ def ColorMaps(_CLabel=None):
     elif _CLabel == 'BlackBrown':
         _colors = [(0, 0, 0), (193/255, 154/255, 107/255)]
         _cmap = LinearSegmentedColormap.from_list('Custom', _colors, N=10000)
+    elif _CLabel == '488nm':
+        _colors = [(0, 0, 0), (0, 234/255, 255/255)]
+        _cmap = LinearSegmentedColormap.from_list('Custom', _colors, N=10000)
     else:
         print('ColorMap not defined. Existing options: Black[Red, Green, Blue, Pink, Brown]')
     return _cmap

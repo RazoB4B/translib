@@ -98,7 +98,7 @@ def PhaseDiffuser(_N, _ps=1, Seed=None):
     np.random.seed(Seed)
     _phasediffuser = 2*np.pi*(np.random.rand(_N//_ps, _N//_ps) - 0.5)
     _phasediffuser = np.repeat(np.repeat(_phasediffuser, _ps, axis=0), _ps, axis=1)
-    return _phasediffuser
+    return np.exp(1j*_phasediffuser)
 
 
 def ElipticMask(size, order=1, a=1, b=1, Max=None, Min=None):
