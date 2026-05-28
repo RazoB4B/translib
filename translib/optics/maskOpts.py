@@ -8,6 +8,7 @@ Created on Tue Nov  4 14:58:15 2025
 import math
 import numpy as np
 from numba import njit, prange
+from scipy.ndimage import gaussian_filter
 
 
 def HarmComb(_Imgs, _Npad=1, _axis=0, _Nper=1):
@@ -85,12 +86,12 @@ def Harmonics(_Imgs, _Nharms=4, _Npad=1, _Sym=True, _axis=0, _Nper=1):
     return _harms
 
 
-def PhaseDiffuser(_N, _ps=1, Seed=None):
+def PhaseDiffuserBinning(_N, _ps=1, Seed=None):
     """
     Computes a random mask with values between -pi and pi.
 
     N: Size of the array side
-    ps: Size of the pixels
+    ps: Size of the pixels binning
     Seed: seed for the pseudorandom numbers
     """
     if Seed is None:
@@ -99,6 +100,24 @@ def PhaseDiffuser(_N, _ps=1, Seed=None):
     _phasediffuser = 2*np.pi*(np.random.rand(_N//_ps, _N//_ps) - 0.5)
     _phasediffuser = np.repeat(np.repeat(_phasediffuser, _ps, axis=0), _ps, axis=1)
     return np.exp(1j*_phasediffuser)
+
+
+def PhaseDiffuserGauss(_N, _cl, Seed=None):
+    """
+    Computes a random mask with values between -pi and pi.
+
+    N: Size of the array side
+    cl: Correlation lenght
+    Seed: seed for the pseudorandom numbers
+    """
+    if Seed is None:
+        Seed = np.random.randint(low=100)
+    np.random.seed(Seed)
+    noise = np.random.rand(_N, _N)
+    phase = gaussian_filter(noise, sigma=_cl)
+    
+    phase = np.pi*phase / np.std(phase)
+    return np.exp(1j*phase)
 
 
 def ElipticMask(size, order=1, a=1, b=1, Max=None, Min=None):
