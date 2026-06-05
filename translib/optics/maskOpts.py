@@ -249,7 +249,7 @@ def SectionMask(size, nfigs, angle, deph=0, clock=True, Max=None, Min=None):
 
 
 @njit(parallel=True, fastmath=True, cache=True)
-def get_lee_holo(complex_pattern, period, center, angle, nbits):
+def LeeMask(complex_pattern, period, center, angle, nbits):
     """
     Compute a binary Lee hologram mask from a complex pattern.
     Assumes |complex_pattern| <= 1.
@@ -335,3 +335,22 @@ def DoubleSectionMask(size, nfigs, angle1, angle2, deph1, deph2, rInt=0.5, clock
         return Masks[0]
     else:
         return Masks
+    
+    
+def SelectPhase(Diffuser, phase=0, dphase=0.1):
+    dephs = [-2*np.pi, 0, 2*np.pi]
+    DMDMask = np.zeros(Diffuser.shape)
+
+    for deph in dephs:
+        _indx, _indy = np.where(np.abs(np.angle(Diffuser) - phase + deph)<dphase*0.5)
+        DMDMask[_indx, _indy] = 1
+    return DMDMask
+
+
+def PhaseRampMask(N, kx, ky):
+    _x = np.linspace(-1, 1, N)
+    X, Y = np.meshgrid(_x, _x)
+
+    phase_ramp = kx*X + ky*Y
+    phase = np.exp(1j*phase_ramp)
+    return phase
