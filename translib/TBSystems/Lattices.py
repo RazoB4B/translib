@@ -10,6 +10,9 @@ import numpy as np
 
 
 def NormalizeParam(x, N, default=None):
+    '''
+    Auxiliar function that allows to fill the one D hamiltonian easily
+    '''
     if x is None:
         return np.full(N, default)
     if np.isscalar(x):
@@ -23,13 +26,13 @@ def NormalizeParam(x, N, default=None):
 
 
 def OneDFirstNeigh(N, Self=None, Coup=None, Periodic=False): 
-    Self = NormalizeParam(Self, N, default=-2)
+    Self = NormalizeParam(Self, N, default=0)
     if Periodic:
-        Coup = NormalizeParam(Coup, N, default=1)
+        Coup = NormalizeParam(Coup, N, default=-1)
         _H = np.diag(Self) + np.diag(Coup[:-1], 1) + np.diag(Coup[:-1], -1)
         _H[0, -1] = Coup[-1]
         _H[-1, 0] = Coup[-1]
     else:    
-        Coup = NormalizeParam(Coup, N-1, default=1)
+        Coup = NormalizeParam(Coup, N-1, default=-1)
         _H = np.diag(Self) + np.diag(Coup, 1) + np.diag(Coup, -1)
     return _H
