@@ -142,8 +142,12 @@ def BioIPR(StateL, StateR, axis=0):
 
 
 def ShannonEnt(State, axis=0):
-    return -np.sum(np.abs(State)**2*np.log(np.abs(State)**2), axis=axis)
+    p = np.abs(State)**2
+    mask = p > 0
+    return -np.sum(p[mask]*np.log(p[mask]), axis=axis)
 
 
 def BioShannonEnt(StateL, StateR, axis=0):
-    return -np.sum(np.abs(StateL*StateR)*np.log(np.abs(StateL*StateR)), axis=axis)
+    p = np.abs(StateL*StateR)
+    mask = p > 0
+    return -np.sum(p[mask]*np.log(p[mask]), axis=axis)
