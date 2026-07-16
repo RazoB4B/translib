@@ -45,7 +45,6 @@ def LocLengthPer(E, H):
     gamma = S/len(H)
     return 1/gamma
 
-#%%
 
 def LocLengthOpen(Es, H, leadC=-1):
     S = np.zeros([len(Es)])
@@ -56,7 +55,7 @@ def LocLengthOpen(Es, H, leadC=-1):
         _TMs = np.zeros([len(Es), 2, 2], dtype='complex')
         if i == 0:
             _TMs[:, 0, 0] = (Es-H[0, 0])/H[1, 0]
-            _TMs[:, 0, 1] = leadC/H[1, 0]
+            _TMs[:, 0, 1] = -leadC/H[1, 0]
         elif i == len(H)-1:
             _TMs[:, 0, 0] = (Es-H[-1, -1])/leadC
             _TMs[:, 0, 1] = -H[-1, -2]/leadC
@@ -73,6 +72,7 @@ def LocLengthOpen(Es, H, leadC=-1):
     gamma = S/len(H)
     return 1/gamma
 
+#%%
 
 def ScatQuan_TransMat(Es, On, leadC=10):
     ks = np.arccos(-Es*0.5/leadC)
