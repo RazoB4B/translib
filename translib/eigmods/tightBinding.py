@@ -22,7 +22,7 @@ def LocLengthPer(E, H):
     S = 0
     _v = np.random.randn(2) + 1j*np.random.randn(2)
     _v /= np.linalg.norm(_v)
-    _TM = np.zeros([2,2], dtype='complex')
+    _TM = np.zeros([2, 2], dtype='complex')
     for i in range(len(H)):
         if i == 0:
             _TM[0, 0] = (E-H[0, 0])/H[1, 0]
@@ -45,16 +45,24 @@ def LocLengthPer(E, H):
     gamma = S/len(H)
     return 1/gamma
 
+#%%
 
-def LocLengthOpen(Es, On):
+def LocLengthOpen(Es, H, leadC=-1):
     S = np.zeros([len(Es)])
     _v = np.random.randn(2) + 1j*np.random.randn(2)
     _v /= np.linalg.norm(_v)
     _v = np.tile(_v, (len(Es), 1))
-    for i in range(len(On)):
+    for i in range(len(H)):
         _TMs = np.zeros([len(Es), 2, 2], dtype='complex')
-        _TMs[:, 0, 0] = (Es-On[i])
-        _TMs[:, 0, 1] = -1
+        if i == 0:
+            _TMs[:, 0, 0] = (Es-H[0, 0])/H[1, 0]
+            _TMs[:, 0, 1] = leadC/H[1, 0]
+        elif i == len(H)-1:
+            _TMs[:, 0, 0] = (Es-H[-1, -1])/leadC
+            _TMs[:, 0, 1] = -H[-1, -2]/leadC
+        else:
+            _TMs[:, 0, 0] = (Es-H[i, i])/H[i+1, i]
+            _TMs[:, 0, 1] = -H[i, i-1]/H[i+1, i]
         _TMs[:, 1, 0] = 1
         
         _v = np.matmul(_TMs, _v[..., None])[..., 0]
@@ -62,11 +70,11 @@ def LocLengthOpen(Es, On):
         _v /= _r[:, None]
         
         S = S + np.log(_r)
-    gamma = S/len(On)
+    gamma = S/len(H)
     return 1/gamma
 
 
-def ScatQuan(Es, On, leadC=10):
+def ScatQuan_TransMat(Es, On, leadC=10):
     ks = np.arccos(-Es*0.5/leadC)
     On = np.append(0, np.append(On, 0))
     
@@ -111,6 +119,25 @@ def ScatQuan(Es, On, leadC=10):
     return S
 
 
+def ScatQuan_GreenFun(Es, On, leadC=10):
+    On = np.append(0, np.append(On, 0))
+    
+    Sigma = (Es-1j*np.sqrt(4*leadC**2 - Es**2))*0.5
+    G = 1/(Es - On[0] - Sigma)
+    
+    G1N = G
+    
+    for i in range(len(On)-2):
+        G_new = 1/(Es - On[i+1] - G)
+        G1N = -G1N*G_new
+        G = G_new
+
+    G = 1/(Es - On[-1] - Sigma - G)
+    G1N = -G1N*G
+
+    return G1N
+
+
 def TimeDelay(Es, On, DE, leadC=10):
     nEne = len(Es)
     EsP = Es + DE/2
@@ -118,7 +145,7 @@ def TimeDelay(Es, On, DE, leadC=10):
     Es = np.append(EsM, EsP)
     Es = np.sort(Es)
     
-    S = ScatQuan(Es, On, leadC=leadC)
+    S = ScatQuan_TransMat(Es, On, leadC=leadC)
     detS = S[:,0,0]*S[:,1,1]-S[:,0,1]*S[:,1,0]
     t = S[:,0,1]
     r = S[:,0,0]
