@@ -302,7 +302,7 @@ def AddNoise(Intensity, Percentage, Seed=None):
     np.random.seed(Seed)
     noise = np.random.normal(0, mean*Percentage, Intensity.shape)
     NewInt = Intensity+noise
-    return NewInt+np.min(NewInt)
+    return NewInt-np.min(NewInt)
 
 
 def DoubleSectionMask(size, nfigs, angle1, angle2, deph1, deph2, rInt=0.5, clock1=True, clock2=True, Max=None, Min=None):

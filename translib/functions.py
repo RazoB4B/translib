@@ -5,6 +5,7 @@ Created on Tue Nov  4 18:20:48 2025
 
 @author: alberto-razo
 """
+import random
 import numpy as np
 from scipy.signal import argrelmax
 
@@ -150,3 +151,33 @@ def polar(_x, _y):
     _z = _x + _y*1j
     
     return np.abs(_z), np.angle(_z)
+
+
+def RandomWalker2D(steps, ini, stepsize, boxsize, Seed=None):
+    x0 = ini[0]
+    y0 = ini[1]
+        
+    x = [x0]
+    y = [y0]
+
+    if Seed is None:
+        Seed = np.random.randint(low=100)
+    random.seed(Seed)
+    i = 0
+    while i < steps:
+        direction = random.choice(["up", "down", "left", "right"])
+
+        if direction == "up":
+            y0 += stepsize
+        elif direction == "down":
+            y0 -= stepsize
+        elif direction == "right":
+            x0 += stepsize
+        else:
+            x0 -= stepsize
+        
+        if 0 <= x0 < boxsize and 0 <= y0 <= boxsize:
+            x.append(x0)
+            y.append(y0)
+            i += 1
+    return np.array(x), np.array(y)

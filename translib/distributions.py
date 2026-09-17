@@ -12,6 +12,7 @@ from tqdm import tqdm
 from scipy.special import kn
 from functools import partial
 from scipy.integrate import quad
+from scipy.stats import levy_stable as Levy
 
 
 def IntensChaos(_I, _phaseRigidity):
@@ -81,6 +82,40 @@ def LogTrans1DDisord(_lnG, _s):
     return _p
 
 #%%
+def Trans1DDisordLevy(G, s, alpha, N=100001):
+    '''
+    Evaluates the statistical distribution of the transmission through a 1D disordered
+    system with mirror disorder and  the adimensional length as parameter s. 
+
+    G: The transmission domain
+    s: The adimensional length
+    N: Number of points to integrate
+    nproc: Number of procesors in the paralelization
+    '''
+    dom = np.linspace(0, 2000, N+1)[1:]
+    I = 0.5*Levy.pdf(dom, alpha, 1)*(dom**(-0.5))
+    I = np.trapezoid(I, dom)
+    xi = s/(2*I*(dom**0.5))
+    
+    PGs = Trans1DDisord(G, xi)
+    PGs = np.trapezoid(PGs*Levy.pdf(dom, alpha, 1), dom)
+    return PGs
+
+def LogTrans1DDisordLevy(_lnG, _s, _alpha):
+    '''
+    Evaluates the statistical distribution of the logarithm of the transmission
+    through a 1D disordered system with the adimensional length as parameter.
+    See Eq. (2) of PRB 88, 205414 (2013)
+
+    lnG: The logarithm of the transmission domain
+    s: The adimensional length
+    '''
+    _G = np.exp(_lnG)
+    _p = _G*Trans1DDisordLevy(_G, _s, _alpha)
+    _p = _p/np.trapezoid(_p, _lnG)
+    return _p
+
+
 def Trans1DDisordSymOnePoint(_G0, _s, _N=10000001):
     '''
     Given the number of point used to compute the statistical distribution of the
@@ -122,6 +157,7 @@ def Trans1DDisordSym(G, s, N=10000001, nproc=25):
     with mp.Pool(processes=nproc) as pool:
         P = list(tqdm(pool.imap(worker, G),total=len(G)))
     return P
+
 
 def LogTrans1DDisordSym(_lnG, _s, _N=10000001, nproc=25):
     '''

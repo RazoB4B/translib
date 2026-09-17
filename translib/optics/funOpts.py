@@ -213,3 +213,20 @@ def GetNumModes(_IntensArray):
     _gs = GetGrainSize(_IntensArray)
     _len = _IntensArray.shape[0]
     return _len**2/(np.pi*(_gs/2)**2)
+
+
+def Norm(array):
+    '''
+    Normalize a given 2D tensor to the mean of its amplitude
+
+    Parameters
+    ----------
+    tensor : 2D complex float tensor
+             The tensor to normalize
+
+    Returns
+    -------
+    2D float tensor : A 2D tensor indentical to the original but
+                      normalized
+    '''
+    return array/np.mean(np.abs(array))
