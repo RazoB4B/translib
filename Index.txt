@@ -1,0 +1,19 @@
+Index :
+	transport :
+		waveguide : Transport functions for a 1D rectangular electromagnetic waveguide with slabs
+		cavity2D : Transport functions for a 2D rectangular electromagnetic cavity with one cylinder (metallic cylinder is not finished)
+		tightBinding : Transport functions for a 1D tight binding chain
+	eigmods :
+		tightBinding : Functions for N dimensional tight binding hamiltonians
+		signalAnalysis : Functions to find resonances in from a spectrum
+		harmonicInversion : Function to find the resonances of a set of spectra
+		manualClustering : Program to cluster the quasimodes of a system
+	optics :
+		funOpts : Function for optical propagation
+		maskOpts : Functions to get different optical masks
+		phaseRet : Program to find the phase from intensity modulations and measurements
+		
+		
+	hamiltonians : functions to generate N dimensional tight binding hamiltonians (in folder Lattices)
+	
+		
