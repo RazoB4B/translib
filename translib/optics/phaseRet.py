@@ -258,7 +258,7 @@ def Resample_Torch(tensor, scale):
 
 def Norm(tensor):
     '''
-    Normalize a given 2D tensor to the mean of its amplitude
+    Normalize a given 2D tensor to the mean of its energy
 
     Parameters
     ----------
@@ -270,7 +270,7 @@ def Norm(tensor):
     2D float tensor : A 2D tensor indentical to the original but
                       normalized
     '''
-    return tensor/torch.mean(torch.abs(tensor))
+    return tensor/torch.sqrt(torch.mean(torch.abs(tensor)**2))
 
 
 def L2_Norm(x, y):
@@ -447,8 +447,8 @@ def Start(MaxSteps, pbar=None):
     return TotLoss, ElapTime, timei, _step, pbar
 
 
-def FindDiffuser(Input, LR_init=1, LR_prop=0.01, deph=0, TryR=False, InitSca=None, InitDiff=None, 
-        DiffSize=None, MaxSteps=None, MaxLoss=None, NPad=None):
+def FindDiffuser(Input, LR_init=1, LR_prop=0.01, deph=0, TryR=False, Aliasing=False, InitSca=None, 
+                 InitDiff=None, DiffSize=None, MaxSteps=None, MaxLoss=None, NPad=None):
     '''
     Input: Experimental quantities
     LR_init: Initial learning rate
@@ -518,7 +518,11 @@ def FindDiffuser(Input, LR_init=1, LR_prop=0.01, deph=0, TryR=False, InitSca=Non
 
         a02_pred = Norm(torch.abs(pred_a0)**2)
         S0_pred = Norm(torch.abs(pred_a0)**2 + torch.abs(pred_am1)**2 + torch.abs(pred_ap1)**2)
-        S1_pred = Norm(pred_a0*pred_am1.conj() + pred_ap1*pred_a0.conj())
+        if Aliasing:
+            S1_pred = Norm(pred_a0*pred_am1.conj() + pred_ap1*pred_a0.conj() + pred_ap1.conj()*pred_am1)
+        else:
+            S1_pred = Norm(pred_a0*pred_am1.conj() + pred_ap1*pred_a0.conj())
+        
 
         loss_a0 = L2_Norm_Torch(a02_pred, a02_target)
         loss_S0 = L2_Norm_Torch(S0_pred, S0_target)
@@ -564,8 +568,8 @@ def FindDiffuser(Input, LR_init=1, LR_prop=0.01, deph=0, TryR=False, InitSca=Non
     return Diff, Scale, TotLoss, ElapTime
 
 
-def FindBigDiffuser(Input, Div=2, LR_init=1, LR_prop=0.01, deph=0, InitSca=None, DiffSize=None, 
-                    MaxSteps=None, MaxLoss=None, NPad=None):
+def FindBigDiffuser(Input, Div=2, LR_init=1, LR_prop=0.01, deph=0, Aliasing=False, InitSca=None, 
+                    DiffSize=None, MaxSteps=None, MaxLoss=None, NPad=None):
     a02= Input[0]
     S0 = Input[1]
     S1 = Input[2]
@@ -584,11 +588,12 @@ def FindBigDiffuser(Input, Div=2, LR_init=1, LR_prop=0.01, deph=0, InitSca=None,
         if i == Div:
             print(f'Starting with a size of {len(_a02)}x{len(_a02)} pixels')
             Diff, Scale, _TotLoss, _ElapTime = FindDiffuser([_a02, _S0, _S1], LR_init, LR_prop, deph, True, 
-                    InitSca=InitSca, DiffSize=_DiffSize, MaxSteps=MaxSteps, MaxLoss=MaxLoss, NPad=NPad)
+                    Aliasing, InitSca=InitSca, DiffSize=_DiffSize, MaxSteps=MaxSteps, MaxLoss=MaxLoss, NPad=NPad)
         else:
             print(f'Increasing the size of the system to {len(_a02)}x{len(_a02)} pixels')
             Diff, Scale, _TotLoss, _ElapTime = FindDiffuser([_a02, _S0, _S1], LR_init/2, LR_prop, deph, False, 
-                    InitSca=Scale, InitDiff=Diff, DiffSize=_DiffSize, MaxSteps=MaxSteps, MaxLoss=MaxLoss, NPad=NPad)
+                    Aliasing, InitSca=Scale, InitDiff=Diff, DiffSize=_DiffSize, MaxSteps=MaxSteps, 
+                    MaxLoss=MaxLoss, NPad=NPad)
 
         if i != 0:
             Diff = np.repeat(np.repeat(Diff, 2, axis=0), 2, axis=1)

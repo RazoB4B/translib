@@ -217,7 +217,7 @@ def GetNumModes(_IntensArray):
 
 def Norm(array):
     '''
-    Normalize a given 2D tensor to the mean of its amplitude
+    Normalize a given 2D tensor to the mean of its energy
 
     Parameters
     ----------
@@ -229,4 +229,4 @@ def Norm(array):
     2D float tensor : A 2D tensor indentical to the original but
                       normalized
     '''
-    return array/np.mean(np.abs(array))
+    return array/np.sqrt(np.mean(np.abs(array)**2))
