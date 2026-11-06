@@ -425,29 +425,33 @@ class manualClusterClass():
                 
         elif event.key == "r":
             if not self.DOSmode:
-                self.Clusters.pop(-1)
-                if self.Dimension == '2D':
-                    self.f_X[-1].remove()
-                    del self.f_X[-1]
-                    self.f_Y[-1].remove()
-                    del self.f_Y[-1]
-                    self.f_XY[-1].remove()
-                    del self.f_XY[-1]
-                elif self.Dimension == '1D':
-                    self.f_X[-1].remove()
-                    del self.f_X[-1]
-                else:
-                    self.f_Index[-1].remove()
-                    del self.f_Index[-1]
-                    
-                self.f_Width[-1].remove()
-                del self.f_Width[-1]
-    
-                self.f_Arg[-1].remove()
-                del self.f_Arg[-1]
-    
-                self.f_Abs[-1].remove()
-                del self.f_Abs[-1]
+                try:
+                    self.Clusters.pop(-1)
+                    if self.Dimension == '2D':
+                        self.f_X[-1].remove()
+                        del self.f_X[-1]
+                        self.f_Y[-1].remove()
+                        del self.f_Y[-1]
+                        self.f_XY[-1].remove()
+                        del self.f_XY[-1]
+                    elif self.Dimension == '1D':
+                        self.f_X[-1].remove()
+                        del self.f_X[-1]
+                    else:
+                        self.f_Index[-1].remove()
+                        del self.f_Index[-1]
+                        
+                    self.f_Width[-1].remove()
+                    del self.f_Width[-1]
+        
+                    self.f_Arg[-1].remove()
+                    del self.f_Arg[-1]
+        
+                    self.f_Abs[-1].remove()
+                    del self.f_Abs[-1]
+                    print('Last cluster has been removed')
+                except:
+                    print('There is no more clusters to remove')
             else:
                 self.ax[0].lines[-1].remove()
                 if self.Dimension == '2D':
