@@ -522,7 +522,6 @@ def FindDiffuser(Input, LR_init=1, LR_prop=0.01, deph=0, TryR=False, Aliasing=Fa
             S1_pred = Norm(pred_a0*pred_am1.conj() + pred_ap1*pred_a0.conj() + pred_ap1.conj()*pred_am1)
         else:
             S1_pred = Norm(pred_a0*pred_am1.conj() + pred_ap1*pred_a0.conj())
-        
 
         loss_a0 = L2_Norm_Torch(a02_pred, a02_target)
         loss_S0 = L2_Norm_Torch(S0_pred, S0_target)
